@@ -24,7 +24,44 @@ body {
   color: #555;
 }
 
+.controls {
+  display: flex;
+  gap: 10px;
+  margin: 0 16px 12px 16px;
+}
+
+.controls button {
+  padding: 10px 16px;
+  border: 1px solid #ccc;
+  background: white;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.status-panel {
+  margin: 0 16px 12px 16px;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.status-panel p {
+  margin: 4px 0;
+}
+
+.error-message {
+  margin: 0 16px 12px 16px;
+  color: #b00020;
+  font-weight: bold;
+}
+
 .leaflet-container {
-  height: calc(100vh - 90px);
+  height: calc(100vh - 220px);
   width: 100%;
 }
