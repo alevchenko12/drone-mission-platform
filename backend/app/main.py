@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import health, route
+from app.api.routes.obstacles import router as obstacles_router
 
 app = FastAPI(
     title="Drone Route Planner API",
@@ -21,3 +22,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(route.router)
+app.include_router(obstacles_router)
