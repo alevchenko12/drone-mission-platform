@@ -9,6 +9,10 @@ function MapPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  const [obstacles, setObstacles] = useState([])
+  const [obstaclesLoading, setObstaclesLoading] = useState(false)
+  const [obstaclesError, setObstaclesError] = useState('')
+
   function handleMapClick(latlng) {
     setError('')
     setRouteCoordinates([])
@@ -50,6 +54,8 @@ function MapPage() {
     setGoalPoint(null)
     setRouteCoordinates([])
     setError('')
+    setObstacles([])
+    setObstaclesError('')
   }
 
   return (
@@ -68,6 +74,8 @@ function MapPage() {
       </div>
 
       {error && <p className="error-message">{error}</p>}
+      {obstaclesError && <p className="error-message">{obstaclesError}</p>}
+      {obstaclesLoading && <p>Loading obstacles...</p>}
 
       <div className="status-panel">
         <p>
@@ -82,6 +90,9 @@ function MapPage() {
             ? `${goalPoint.lat.toFixed(5)}, ${goalPoint.lng.toFixed(5)}`
             : 'Not selected'}
         </p>
+        <p>
+          <strong>Obstacles:</strong> {obstacles.length}
+        </p>
       </div>
 
       <MapView
@@ -89,6 +100,10 @@ function MapPage() {
         goalPoint={goalPoint}
         routeCoordinates={routeCoordinates}
         onMapClick={handleMapClick}
+        obstacles={obstacles}
+        setObstacles={setObstacles}
+        setObstaclesLoading={setObstaclesLoading}
+        setObstaclesError={setObstaclesError}
       />
     </div>
   )
