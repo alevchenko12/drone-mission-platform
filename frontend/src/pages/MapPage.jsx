@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import MapView from '../components/MapView'
 import { generateRoute } from '../services/routeApi'
+import { createRectangleObstacle } from '../utils/manualObstacle'
 
 function MapPage() {
   const [startPoint, setStartPoint] = useState(null)
@@ -13,9 +14,28 @@ function MapPage() {
   const [obstaclesLoading, setObstaclesLoading] = useState(false)
   const [obstaclesError, setObstaclesError] = useState('')
 
+  const [manualObstacles, setManualObstacles] = useState([])
+  const [isDrawingObstacle, setIsDrawingObstacle] = useState(false)
+  const [pendingObstacleCorner, setPendingObstacleCorner] = useState(null)
+
+  const allObstacles = [...obstacles, ...manualObstacles]
+
   function handleMapClick(latlng) {
     setError('')
     setRouteCoordinates([])
+
+    if (isDrawingObstacle) {
+      if (!pendingObstacleCorner) {
+        setPendingObstacleCorner(latlng)
+        return
+      }
+
+      const newObstacle = createRectangleObstacle(pendingObstacleCorner, latlng)
+      setManualObstacles((prev) => [...prev, newObstacle])
+      setPendingObstacleCorner(null)
+      setIsDrawingObstacle(false)
+      return
+    }
 
     if (!startPoint) {
       setStartPoint(latlng)
@@ -40,7 +60,7 @@ function MapPage() {
       setLoading(true)
       setError('')
 
-      const data = await generateRoute(startPoint, goalPoint)
+      const data = await generateRoute(startPoint, goalPoint, allObstacles)
       setRouteCoordinates(data.route_coordinates)
     } catch (err) {
       setError('Could not generate route. Check backend connection.')
@@ -54,8 +74,9 @@ function MapPage() {
     setGoalPoint(null)
     setRouteCoordinates([])
     setError('')
-    setObstacles([])
-    setObstaclesError('')
+    setManualObstacles([])
+    setPendingObstacleCorner(null)
+    setIsDrawingObstacle(false)
   }
 
   return (
@@ -70,6 +91,26 @@ function MapPage() {
 
         <button onClick={handleReset} disabled={loading}>
           Reset
+        </button>
+
+        <button
+          onClick={() => {
+            setIsDrawingObstacle((prev) => !prev)
+            setPendingObstacleCorner(null)
+          }}
+          disabled={loading}
+        >
+          {isDrawingObstacle ? 'Cancel Obstacle' : 'Draw Obstacle'}
+        </button>
+
+        <button
+          onClick={() => {
+            setManualObstacles([])
+            setPendingObstacleCorner(null)
+          }}
+          disabled={loading}
+        >
+          Clear Manual Obstacles
         </button>
       </div>
 
@@ -91,7 +132,21 @@ function MapPage() {
             : 'Not selected'}
         </p>
         <p>
-          <strong>Obstacles:</strong> {obstacles.length}
+          <strong>OSM Obstacles:</strong> {obstacles.length}
+        </p>
+        <p>
+          <strong>Manual Obstacles:</strong> {manualObstacles.length}
+        </p>
+        <p>
+          <strong>Total Obstacles:</strong> {allObstacles.length}
+        </p>
+        <p>
+          <strong>Mode:</strong>{' '}
+          {isDrawingObstacle
+            ? pendingObstacleCorner
+              ? 'Select second corner'
+              : 'Select first corner'
+            : 'Route selection'}
         </p>
       </div>
 
@@ -101,6 +156,7 @@ function MapPage() {
         routeCoordinates={routeCoordinates}
         onMapClick={handleMapClick}
         obstacles={obstacles}
+        manualObstacles={manualObstacles}
         setObstacles={setObstacles}
         setObstaclesLoading={setObstaclesLoading}
         setObstaclesError={setObstaclesError}

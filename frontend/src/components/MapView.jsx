@@ -15,6 +15,7 @@ function MapView({
   routeCoordinates,
   onMapClick,
   obstacles,
+  manualObstacles,
   setObstacles,
   setObstaclesLoading,
   setObstaclesError,
@@ -62,6 +63,19 @@ function MapView({
             pathOptions={{
               weight: 1,
               fillOpacity: 0.4,
+            }}
+          />
+        ))}
+
+      {manualObstacles
+        .filter((obstacle) => obstacle.geometry && obstacle.geometry.length >= 3)
+        .map((obstacle) => (
+          <Polygon
+            key={obstacle.id}
+            positions={obstacle.geometry.map((point) => [point.lat, point.lon])}
+            pathOptions={{
+              weight: 2,
+              fillOpacity: 0.3,
             }}
           />
         ))}

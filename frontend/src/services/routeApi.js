@@ -1,10 +1,10 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+const API_BASE_URL = "http://localhost:8000";
 
-export async function generateRoute(startPoint, goalPoint) {
+export async function generateRoute(startPoint, goalPoint, obstacles = []) {
   const response = await fetch(`${API_BASE_URL}/route/generate`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       start_point: {
@@ -15,16 +15,16 @@ export async function generateRoute(startPoint, goalPoint) {
         lat: goalPoint.lat,
         lon: goalPoint.lng,
       },
-      obstacles: [],
+      obstacles: obstacles,
       drone_parameters: {
-        height: 50,
+        height: 10,
       },
     }),
-  })
+  });
 
   if (!response.ok) {
-    throw new Error('Failed to generate route')
+    throw new Error("Failed to generate route.");
   }
 
-  return response.json()
+  return response.json();
 }
