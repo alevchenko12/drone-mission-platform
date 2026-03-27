@@ -6,6 +6,9 @@ from app.services.obstacle_cache import (
     make_cache_key,
     get_cached_obstacles,
     set_cached_obstacles,
+    set_rate_limited,
+    is_rate_limited,
+    get_rate_limit_remaining_seconds,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,16 @@ async def get_obstacles(
             cached=True,
         )
 
+    if is_rate_limited():
+        remaining = get_rate_limit_remaining_seconds()
+        logger.warning(f"Overpass cooldown active: {remaining}s remaining")
+        return ObstacleListResponse(
+            obstacles=[],
+            count=0,
+            source_status="rate_limited",
+            cached=False,
+        )
+
     try:
         obstacles = await fetch_building_obstacles(
             min_lat=min_lat,
@@ -61,11 +74,32 @@ async def get_obstacles(
         )
 
     except RuntimeError as exc:
-        logger.warning(f"Obstacle loading failed: {exc}")
+        error_type = str(exc)
+
+        if error_type == "rate_limited":
+            logger.warning("Overpass returned 429 Too Many Requests")
+            set_rate_limited()
+            return ObstacleListResponse(
+                obstacles=[],
+                count=0,
+                source_status="rate_limited",
+                cached=False,
+            )
+
+        if error_type == "timeout":
+            logger.warning("Overpass request timed out")
+            return ObstacleListResponse(
+                obstacles=[],
+                count=0,
+                source_status="timeout",
+                cached=False,
+            )
+
+        logger.warning(f"Obstacle loading failed: {error_type}")
         return ObstacleListResponse(
             obstacles=[],
             count=0,
-            source_status="timeout",
+            source_status="error",
             cached=False,
         )
 

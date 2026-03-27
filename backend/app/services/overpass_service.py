@@ -1,7 +1,6 @@
 import httpx
 from typing import Any, Dict, List, Optional
 
-
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 
@@ -48,13 +47,11 @@ def _way_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if len(geometry) < 3:
         return None
 
-    obstacle_geometry = [{"lat": p["lat"], "lon": p["lon"]} for p in geometry]
-
     return {
         "id": f"osm-{element['type']}-{element['id']}",
         "source": "osm",
         "type": "building",
-        "geometry": obstacle_geometry,
+        "geometry": [{"lat": p["lat"], "lon": p["lon"]} for p in geometry],
         "height": _parse_height(element.get("tags", {})),
     }
 
@@ -68,13 +65,11 @@ def _relation_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if len(geometry) < 3:
                 continue
 
-            obstacle_geometry = [{"lat": p["lat"], "lon": p["lon"]} for p in geometry]
-
             return {
                 "id": f"osm-{element['type']}-{element['id']}",
                 "source": "osm",
                 "type": "building",
-                "geometry": obstacle_geometry,
+                "geometry": [{"lat": p["lat"], "lon": p["lon"]} for p in geometry],
                 "height": _parse_height(element.get("tags", {})),
             }
 
@@ -89,25 +84,44 @@ async def fetch_building_obstacles(
 ) -> List[Dict[str, Any]]:
     query = _build_overpass_query(min_lat, min_lon, max_lat, max_lon)
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            OVERPASS_URL,
-            content=query,
-            headers={"Content-Type": "text/plain"},
-        )
-        response.raise_for_status()
-        data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                OVERPASS_URL,
+                content=query,
+                headers={"Content-Type": "text/plain"},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+    except httpx.TimeoutException as exc:
+        raise RuntimeError("timeout") from exc
+
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response else None
+
+        if status_code == 429:
+            raise RuntimeError("rate_limited") from exc
+
+        if status_code == 504:
+            raise RuntimeError("timeout") from exc
+
+        raise RuntimeError(f"http_{status_code}") from exc
+
+    except httpx.RequestError as exc:
+        raise RuntimeError("request_failed") from exc
+
+    except ValueError as exc:
+        raise RuntimeError("invalid_json") from exc
 
     elements = data.get("elements", [])
     obstacles: List[Dict[str, Any]] = []
 
     for element in elements:
-        element_type = element.get("type")
-
         obstacle = None
-        if element_type == "way":
+        if element.get("type") == "way":
             obstacle = _way_to_obstacle(element)
-        elif element_type == "relation":
+        elif element.get("type") == "relation":
             obstacle = _relation_to_obstacle(element)
 
         if obstacle:

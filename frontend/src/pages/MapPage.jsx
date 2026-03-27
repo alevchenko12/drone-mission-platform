@@ -74,33 +74,24 @@ function MapPage() {
   }
 
   async function handleLoadObstacles() {
-    if (!currentBounds) {
-      setObstaclesError('Map bounds are not available yet.')
-      return
-    }
+    const response = await fetchObstacles(currentBounds)
 
-    if (currentZoom < 14) {
-      setObstaclesError('Please zoom in more before loading obstacles.')
-      return
-    }
+if (response.source_status === 'rate_limited') {
+  setObstaclesError('Obstacle service is temporarily rate-limited. Keeping previous obstacles.')
+  return
+}
 
-    try {
-      setObstaclesLoading(true)
-      setObstaclesError('')
+if (response.source_status === 'timeout') {
+  setObstaclesError('Obstacle service timed out. Keeping previous obstacles.')
+  return
+}
 
-      const response = await fetchObstacles(currentBounds)
+if (response.source_status === 'error') {
+  setObstaclesError('Obstacle loading failed. Keeping previous obstacles.')
+  return
+}
 
-      if (response.source_status === 'timeout') {
-        setObstaclesError('Obstacle service timed out. Keeping previous obstacles.')
-        return
-      }
-
-      setObstacles(response.obstacles || [])
-    } catch (error) {
-      setObstaclesError(error.message || 'Failed to load obstacles.')
-    } finally {
-      setObstaclesLoading(false)
-    }
+setObstacles(response.obstacles || [])
   }
 
   function handleReset() {
