@@ -11,7 +11,17 @@ export async function fetchObstacles(bounds) {
   const response = await fetch(`${API_BASE_URL}/obstacles?${params.toString()}`);
 
   if (!response.ok) {
-    throw new Error("Failed to load obstacles.");
+    let message = "Failed to load obstacles.";
+
+    try {
+      const errorData = await response.json();
+      if (errorData.detail) {
+        message = errorData.detail;
+      }
+    } catch {
+    }
+
+    throw new Error(message);
   }
 
   return response.json();

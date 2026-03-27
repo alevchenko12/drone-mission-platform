@@ -7,7 +7,7 @@ import {
   Polygon,
 } from 'react-leaflet'
 import MapClickHandler from './MapClickHandler'
-import ObstacleLoader from './ObstacleLoader'
+import MapBoundsTracker from './MapBoundsTracker'
 
 function MapView({
   startPoint,
@@ -16,9 +16,8 @@ function MapView({
   onMapClick,
   obstacles,
   manualObstacles,
-  setObstacles,
-  setObstaclesLoading,
-  setObstaclesError,
+  setCurrentBounds,
+  setCurrentZoom,
 }) {
   const center = [47.4979, 19.0402]
   const zoom = 13
@@ -32,10 +31,9 @@ function MapView({
 
       <MapClickHandler onMapClick={onMapClick} />
 
-      <ObstacleLoader
-        setObstacles={setObstacles}
-        setObstaclesLoading={setObstaclesLoading}
-        setObstaclesError={setObstaclesError}
+      <MapBoundsTracker
+        setCurrentBounds={setCurrentBounds}
+        setCurrentZoom={setCurrentZoom}
       />
 
       {startPoint && (

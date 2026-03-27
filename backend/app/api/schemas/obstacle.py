@@ -18,3 +18,5 @@ class ObstacleSchema(BaseModel):
 class ObstacleListResponse(BaseModel):
     obstacles: List[ObstacleSchema] = Field(default_factory=list)
     count: int = 0
+    source_status: str = "ok"
+    cached: bool = False

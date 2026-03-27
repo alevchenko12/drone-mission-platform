@@ -2,6 +2,7 @@ import { useState } from 'react'
 import MapView from '../components/MapView'
 import { generateRoute } from '../services/routeApi'
 import { createRectangleObstacle } from '../utils/manualObstacle'
+import { fetchObstacles } from '../services/obstacleApi'
 
 function MapPage() {
   const [startPoint, setStartPoint] = useState(null)
@@ -17,6 +18,9 @@ function MapPage() {
   const [manualObstacles, setManualObstacles] = useState([])
   const [isDrawingObstacle, setIsDrawingObstacle] = useState(false)
   const [pendingObstacleCorner, setPendingObstacleCorner] = useState(null)
+
+  const [currentBounds, setCurrentBounds] = useState(null)
+  const [currentZoom, setCurrentZoom] = useState(13)
 
   const allObstacles = [...obstacles, ...manualObstacles]
 
@@ -69,6 +73,36 @@ function MapPage() {
     }
   }
 
+  async function handleLoadObstacles() {
+    if (!currentBounds) {
+      setObstaclesError('Map bounds are not available yet.')
+      return
+    }
+
+    if (currentZoom < 14) {
+      setObstaclesError('Please zoom in more before loading obstacles.')
+      return
+    }
+
+    try {
+      setObstaclesLoading(true)
+      setObstaclesError('')
+
+      const response = await fetchObstacles(currentBounds)
+
+      if (response.source_status === 'timeout') {
+        setObstaclesError('Obstacle service timed out. Keeping previous obstacles.')
+        return
+      }
+
+      setObstacles(response.obstacles || [])
+    } catch (error) {
+      setObstaclesError(error.message || 'Failed to load obstacles.')
+    } finally {
+      setObstaclesLoading(false)
+    }
+  }
+
   function handleReset() {
     setStartPoint(null)
     setGoalPoint(null)
@@ -85,6 +119,10 @@ function MapPage() {
       <p>Click once for start, click again for goal, then generate route.</p>
 
       <div className="controls">
+        <button onClick={handleLoadObstacles} disabled={loading || isDrawingObstacle}>
+          {obstaclesLoading ? 'Loading Obstacles...' : 'Load Obstacles'}
+        </button>
+
         <button onClick={handleGenerateRoute} disabled={loading}>
           {loading ? 'Generating...' : 'Generate Route'}
         </button>
@@ -141,6 +179,9 @@ function MapPage() {
           <strong>Total Obstacles:</strong> {allObstacles.length}
         </p>
         <p>
+          <strong>Zoom:</strong> {currentZoom}
+        </p>
+        <p>
           <strong>Mode:</strong>{' '}
           {isDrawingObstacle
             ? pendingObstacleCorner
@@ -157,9 +198,8 @@ function MapPage() {
         onMapClick={handleMapClick}
         obstacles={obstacles}
         manualObstacles={manualObstacles}
-        setObstacles={setObstacles}
-        setObstaclesLoading={setObstaclesLoading}
-        setObstaclesError={setObstaclesError}
+        setCurrentBounds={setCurrentBounds}
+        setCurrentZoom={setCurrentZoom}
       />
     </div>
   )
