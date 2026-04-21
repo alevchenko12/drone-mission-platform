@@ -95,6 +95,15 @@ async def get_obstacles(
                 cached=False,
             )
 
+        if error_type == "not_acceptable":
+            logger.warning("Overpass returned 406 Not Acceptable")
+            return ObstacleListResponse(
+                obstacles=[],
+                count=0,
+                source_status="error",
+                cached=False,
+            )
+
         logger.warning(f"Obstacle loading failed: {error_type}")
         return ObstacleListResponse(
             obstacles=[],

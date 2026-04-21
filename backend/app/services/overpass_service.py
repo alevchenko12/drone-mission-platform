@@ -88,8 +88,7 @@ async def fetch_building_obstacles(
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 OVERPASS_URL,
-                content=query,
-                headers={"Content-Type": "text/plain"},
+                data={"data": query},
             )
             response.raise_for_status()
             data = response.json()
