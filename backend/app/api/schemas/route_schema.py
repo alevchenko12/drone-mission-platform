@@ -17,6 +17,7 @@ class Obstacle(BaseModel):
 
 class DroneParameters(BaseModel):
     height: float = Field(default=50.0, description="Drone altitude in meters")
+    safety_margin: float = Field(default=5.0, description="Safety margin in meters")
 
 
 class RouteGenerateRequest(BaseModel):
