@@ -8,6 +8,13 @@ from app.planner.obstacle_mapper import (
     block_obstacle_on_grid,
     block_obstacles_on_grid,
 )
+from app.planner.astar import (
+    heuristic,
+    movement_cost,
+    get_neighbors,
+    reconstruct_path,
+    astar_search,
+)
 
 __all__ = [
     "GeoPoint",
@@ -23,4 +30,9 @@ __all__ = [
     "point_in_polygon",
     "block_obstacle_on_grid",
     "block_obstacles_on_grid",
+    "heuristic",
+    "movement_cost",
+    "get_neighbors",
+    "reconstruct_path",
+    "astar_search",
 ]

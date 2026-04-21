@@ -1,10 +1,10 @@
 from app.planner import (
     GeoPoint,
-    GridPoint,
     PlannerObstacle,
     calculate_planner_bounds,
     PlanningGrid,
     block_obstacles_on_grid,
+    astar_search,
 )
 
 
@@ -28,7 +28,14 @@ def main():
     bounds = calculate_planner_bounds(start, goal, [obstacle])
     print("Bounds:", bounds)
 
-    grid = PlanningGrid(bounds=bounds, rows=20, cols=20)
+    grid = PlanningGrid(bounds=bounds, rows=30, cols=30)
+
+    block_obstacles_on_grid(
+        grid=grid,
+        obstacles=[obstacle],
+        drone_height=10.0,
+        safety_margin=5.0,
+    )
 
     start_grid = grid.converter.geo_to_grid(start)
     goal_grid = grid.converter.geo_to_grid(goal)
@@ -36,26 +43,20 @@ def main():
     print("Start grid:", start_grid)
     print("Goal grid:", goal_grid)
 
-    block_obstacles_on_grid(
-        grid=grid,
-        obstacles=[obstacle],
-        drone_height=25.0,
-        safety_margin=5.0,
-    )
+    path = astar_search(grid, start_grid, goal_grid)
 
-    print("Blocked cells after obstacle mapping:")
+    if path is None:
+        print("No path found.")
+        return
 
-    blocked_count = 0
-    for row in range(grid.rows):
-        for col in range(grid.cols):
-            if grid.is_blocked(GridPoint(row, col)):
-                blocked_count += 1
+    print("Path found.")
+    print("Path length:", len(path))
+    print("First node:", path[0])
+    print("Last node:", path[-1])
 
-    print("Blocked cell count:", blocked_count)
-
-    obstacle_test_cell = grid.converter.geo_to_grid(GeoPoint(lat=54.6881, lon=25.28065))
-    print("Obstacle center cell:", obstacle_test_cell)
-    print("Obstacle center blocked:", grid.is_blocked(obstacle_test_cell))
+    geo_path = [grid.converter.grid_to_geo_center(p) for p in path]
+    print("First geo point:", geo_path[0])
+    print("Last geo point:", geo_path[-1])
 
 
 if __name__ == "__main__":
