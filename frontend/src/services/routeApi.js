@@ -25,7 +25,8 @@ export async function generateRoute(startPoint, goalPoint, obstacles = []) {
     },
     obstacles: obstacles.map(normalizeObstacleForRoute),
     drone_parameters: {
-      height: 10,
+      height: 18,
+      safety_margin: 5,
     },
   };
 

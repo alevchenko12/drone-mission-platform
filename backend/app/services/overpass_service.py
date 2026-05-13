@@ -1,7 +1,22 @@
+import hashlib
 import httpx
 from typing import Any, Dict, List, Optional
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+UNKNOWN_HEIGHT_MIN = 6.0
+UNKNOWN_HEIGHT_MAX = 30.0
+
+
+def _stable_random_height(element_id: Any) -> float:
+    seed = str(element_id).encode("utf-8")
+    digest = hashlib.sha256(seed).hexdigest()
+    value = int(digest[:8], 16)
+
+    normalized = value / 0xFFFFFFFF
+    height = UNKNOWN_HEIGHT_MIN + normalized * (UNKNOWN_HEIGHT_MAX - UNKNOWN_HEIGHT_MIN)
+
+    return round(height, 1)
 
 
 def _build_overpass_query(
@@ -20,9 +35,9 @@ def _build_overpass_query(
     )
 
 
-def _parse_height(tags: Dict[str, Any]) -> float:
+def _parse_height(tags: Dict[str, Any], fallback_seed: Any) -> float:
     if not tags:
-        return 0.0
+        return _stable_random_height(fallback_seed)
 
     raw_height = tags.get("height")
     if raw_height:
@@ -39,7 +54,7 @@ def _parse_height(tags: Dict[str, Any]) -> float:
         except ValueError:
             pass
 
-    return 0.0
+    return _stable_random_height(fallback_seed)
 
 
 def _way_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -52,7 +67,7 @@ def _way_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "source": "osm",
         "type": "building",
         "geometry": [{"lat": p["lat"], "lon": p["lon"]} for p in geometry],
-        "height": _parse_height(element.get("tags", {})),
+        "height": _parse_height(element.get("tags", {}), element.get("id")),
     }
 
 
@@ -70,7 +85,7 @@ def _relation_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 "source": "osm",
                 "type": "building",
                 "geometry": [{"lat": p["lat"], "lon": p["lon"]} for p in geometry],
-                "height": _parse_height(element.get("tags", {})),
+                "height": _parse_height(element.get("tags", {}), element.get("id")),
             }
 
     return None
