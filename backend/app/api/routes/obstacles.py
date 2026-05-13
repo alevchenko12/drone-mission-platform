@@ -95,7 +95,7 @@ async def get_obstacles(
                 cached=False,
             )
 
-        if error_type == "not_acceptable":
+        if error_type == "not_acceptable" or error_type == "http_406":
             logger.warning("Overpass returned 406 Not Acceptable")
             return ObstacleListResponse(
                 obstacles=[],
@@ -110,11 +110,4 @@ async def get_obstacles(
             count=0,
             source_status="error",
             cached=False,
-        )
-
-    except Exception as exc:
-        logger.exception("Unexpected obstacle loading failure")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load obstacles: {str(exc)}",
         )

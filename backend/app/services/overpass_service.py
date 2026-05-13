@@ -10,14 +10,14 @@ def _build_overpass_query(
     max_lat: float,
     max_lon: float,
 ) -> str:
-    return f"""
-    [out:json][timeout:25];
-    (
-      way["building"]({min_lat},{min_lon},{max_lat},{max_lon});
-      relation["building"]({min_lat},{min_lon},{max_lat},{max_lon});
-    );
-    out geom;
-    """
+    return (
+        f"[out:json][timeout:25];"
+        f"("
+        f'way["building"]({min_lat},{min_lon},{max_lat},{max_lon});'
+        f'relation["building"]({min_lat},{min_lon},{max_lat},{max_lon});'
+        f");"
+        f"out geom;"
+    )
 
 
 def _parse_height(tags: Dict[str, Any]) -> float:
@@ -89,7 +89,12 @@ async def fetch_building_obstacles(
             response = await client.post(
                 OVERPASS_URL,
                 data={"data": query},
+                headers={
+                    "User-Agent": "drone-route-planner/0.1",
+                    "Accept": "application/json",
+                },
             )
+
             response.raise_for_status()
             data = response.json()
 
@@ -105,6 +110,9 @@ async def fetch_building_obstacles(
         if status_code == 504:
             raise RuntimeError("timeout") from exc
 
+        if status_code == 406:
+            raise RuntimeError("not_acceptable") from exc
+
         raise RuntimeError(f"http_{status_code}") from exc
 
     except httpx.RequestError as exc:
@@ -118,6 +126,7 @@ async def fetch_building_obstacles(
 
     for element in elements:
         obstacle = None
+
         if element.get("type") == "way":
             obstacle = _way_to_obstacle(element)
         elif element.get("type") == "relation":
