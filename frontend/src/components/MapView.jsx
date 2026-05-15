@@ -18,6 +18,7 @@ function MapView({
   manualObstacles,
   setCurrentBounds,
   setCurrentZoom,
+  dronePosition,
 }) {
   const center = [47.4979, 19.0402]
   const zoom = 13
@@ -45,6 +46,12 @@ function MapView({
       {goalPoint && (
         <Marker position={goalPoint}>
           <Popup>Goal Point</Popup>
+        </Marker>
+      )}
+
+      {dronePosition && (
+        <Marker position={dronePosition}>
+          <Popup>Drone Position</Popup>
         </Marker>
       )}
 

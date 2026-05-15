@@ -44,15 +44,18 @@ body {
 }
 
 .status-panel {
-  margin: 0 16px 12px 16px;
-  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 20px;
+  padding: 8px 12px;
+  margin: 8px 16px;
   border: 1px solid #ddd;
   border-radius: 6px;
-  background: #fafafa;
 }
 
 .status-panel p {
-  margin: 4px 0;
+  margin: 0;
+  line-height: 1.2;
 }
 
 .error-message {
