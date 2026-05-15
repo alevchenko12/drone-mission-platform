@@ -18,6 +18,7 @@ function MapPage() {
   const [manualObstacles, setManualObstacles] = useState([])
   const [isDrawingObstacle, setIsDrawingObstacle] = useState(false)
   const [pendingObstacleCorner, setPendingObstacleCorner] = useState(null)
+  const [manualObstacleHeight, setManualObstacleHeight] = useState(0)
 
   const [currentBounds, setCurrentBounds] = useState(null)
   const [currentZoom, setCurrentZoom] = useState(13)
@@ -34,7 +35,11 @@ function MapPage() {
         return
       }
 
-      const newObstacle = createRectangleObstacle(pendingObstacleCorner, latlng)
+      const newObstacle = createRectangleObstacle(
+        pendingObstacleCorner,
+        latlng,
+        Number(manualObstacleHeight) || 0
+      )
       setManualObstacles((prev) => [...prev, newObstacle])
       setPendingObstacleCorner(null)
       setIsDrawingObstacle(false)
@@ -131,6 +136,19 @@ setObstacles(response.obstacles || [])
         >
           {isDrawingObstacle ? 'Cancel Obstacle' : 'Draw Obstacle'}
         </button>
+
+        {isDrawingObstacle && (
+          <label>
+            Manual obstacle height (m):
+            <input
+              type="number"
+              min="0"
+              value={manualObstacleHeight}
+              onChange={(event) => setManualObstacleHeight(event.target.value)}
+              disabled={loading}
+            />
+          </label>
+        )}
 
         <button
           onClick={() => {
