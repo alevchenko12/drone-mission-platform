@@ -68,3 +68,8 @@ body {
   height: calc(100vh - 220px);
   width: 100%;
 }
+.drone-icon {
+  font-size: 24px;
+  line-height: 24px;
+  text-align: center;
+}

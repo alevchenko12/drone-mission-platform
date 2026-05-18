@@ -1,3 +1,4 @@
+import L from 'leaflet'
 import {
   MapContainer,
   TileLayer,
@@ -9,6 +10,13 @@ import {
 import MapClickHandler from './MapClickHandler'
 import MapBoundsTracker from './MapBoundsTracker'
 
+const droneIcon = L.divIcon({
+  html: '<div class="drone-icon">✈️</div>',
+  className: '',
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+})
+
 function MapView({
   startPoint,
   goalPoint,
@@ -19,6 +27,7 @@ function MapView({
   setCurrentBounds,
   setCurrentZoom,
   dronePosition,
+  droneAltitude,
 }) {
   const center = [47.4979, 19.0402]
   const zoom = 13
@@ -50,8 +59,12 @@ function MapView({
       )}
 
       {dronePosition && (
-        <Marker position={dronePosition}>
-          <Popup>Drone Position</Popup>
+        <Marker position={dronePosition} icon={droneIcon}>
+          <Popup>
+            Drone Position
+            <br />
+            Altitude: {droneAltitude.toFixed(1)} m
+          </Popup>
         </Marker>
       )}
 
