@@ -7,7 +7,7 @@ import { fetchObstacles } from '../services/obstacleApi'
 const BASE_ALTITUDE = 18
 const SAFETY_MARGIN = 5
 const DRONE_SPEED_MPS = 5
-const SIMULATION_STEP_MS = 100
+const SIMULATION_STEP_MS = 200
 const TAKEOFF_DURATION_MS = 3000
 const LANDING_DURATION_MS = 3000
 const OBSTACLE_NEAR_DISTANCE_METERS = 25
@@ -167,6 +167,7 @@ function MapPage() {
   const [totalDistance, setTotalDistance] = useState(0)
   const [travelledDistance, setTravelledDistance] = useState(0)
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState(0)
+  const [nearestObstacleInfo, setNearestObstacleInfo] = useState(null)
 
   const intervalRef = useRef(null)
   const routeSegmentsRef = useRef([])
@@ -178,6 +179,7 @@ function MapPage() {
   const landingStartAltitudeRef = useRef(0)
   const missionStateRef = useRef('idle')
   const droneAltitudeRef = useRef(0)
+  const pausedMissionStateRef = useRef('idle')
 
   const allObstacles = [...obstacles, ...manualObstacles]
 
@@ -201,12 +203,14 @@ function MapPage() {
   function resetSimulationState() {
     stopSimulationTimer()
 
+    routeSegmentsRef.current = []
     segmentIndexRef.current = 0
     distanceInSegmentRef.current = 0
     travelledDistanceRef.current = 0
     takeoffElapsedRef.current = 0
     landingElapsedRef.current = 0
     landingStartAltitudeRef.current = 0
+    pausedMissionStateRef.current = 'idle'
     missionStateRef.current = 'idle'
     droneAltitudeRef.current = 0
 
@@ -216,6 +220,38 @@ function MapPage() {
     setSimulationProgress(0)
     setTravelledDistance(0)
     setEstimatedTimeRemaining(0)
+    setNearestObstacleInfo(null)
+  }
+
+  function updateNearestObstacle(position) {
+    let nearest = null
+    let minDistance = Infinity
+
+    for (const obstacle of allObstacles) {
+      const center = getObstacleCenter(obstacle)
+
+      if (!center) {
+        continue
+      }
+
+      const distance = calculateDistanceMeters(
+        { lat: position.lat, lon: position.lon },
+        center
+      )
+
+      if (distance < minDistance) {
+        minDistance = distance
+        nearest = {
+          id: obstacle.id,
+          type: obstacle.type,
+          height: obstacle.height || 0,
+          distance,
+          requiredAltitude: (obstacle.height || 0) + SAFETY_MARGIN,
+        }
+      }
+    }
+
+    setNearestObstacleInfo(nearest)
   }
 
   function updateSimulationStep() {
@@ -255,8 +291,7 @@ function MapPage() {
         1
       )
 
-      const nextAltitude =
-        landingStartAltitudeRef.current * (1 - ratio)
+      const nextAltitude = landingStartAltitudeRef.current * (1 - ratio)
 
       setDroneAltitudeValue(nextAltitude)
 
@@ -271,7 +306,10 @@ function MapPage() {
       return
     }
 
-    if (currentMissionState !== 'flying') {
+    if (
+      currentMissionState !== 'flying' &&
+      currentMissionState !== 'returning'
+    ) {
       return
     }
 
@@ -314,10 +352,15 @@ function MapPage() {
     setSimulationProgress(progress)
 
     if (currentSegmentIndex >= routeSegmentsRef.current.length) {
-      const lastCoordinate = routeCoordinates[routeCoordinates.length - 1]
-      const [lastLat, lastLon] = lastCoordinate
+      const lastSegment = routeSegmentsRef.current[routeSegmentsRef.current.length - 1]
 
-      setDronePosition({ lat: lastLat, lng: lastLon })
+      if (lastSegment) {
+        setDronePosition({
+          lat: lastSegment.end.lat,
+          lng: lastSegment.end.lon,
+        })
+      }
+
       landingStartAltitudeRef.current = droneAltitudeRef.current
       landingElapsedRef.current = 0
       setMissionStateValue('landing')
@@ -354,6 +397,7 @@ function MapPage() {
     )
 
     setDroneAltitudeValue(nextAltitude)
+    updateNearestObstacle(interpolatedPosition)
 
     setEstimatedTimeRemaining(
       Math.max(
@@ -375,6 +419,7 @@ function MapPage() {
   function handleMapClick(latlng) {
     setError('')
     setRouteCoordinates([])
+    setTotalDistance(0)
     resetSimulationState()
 
     if (isDrawingObstacle) {
@@ -506,6 +551,7 @@ function MapPage() {
     takeoffElapsedRef.current = 0
     landingElapsedRef.current = 0
     landingStartAltitudeRef.current = 0
+    pausedMissionStateRef.current = 'idle'
 
     const [startLat, startLon] = routeCoordinates[0]
 
@@ -515,6 +561,7 @@ function MapPage() {
     setSimulationProgress(0)
     setDronePosition({ lat: startLat, lng: startLon })
     setDroneAltitudeValue(0)
+    setNearestObstacleInfo(null)
     setEstimatedTimeRemaining(
       routeDistance / DRONE_SPEED_MPS +
         TAKEOFF_DURATION_MS / 1000 +
@@ -528,11 +575,13 @@ function MapPage() {
     if (
       missionStateRef.current !== 'taking_off' &&
       missionStateRef.current !== 'flying' &&
+      missionStateRef.current !== 'returning' &&
       missionStateRef.current !== 'landing'
     ) {
       return
     }
 
+    pausedMissionStateRef.current = missionStateRef.current
     stopSimulationTimer()
     setMissionStateValue('paused')
   }
@@ -542,8 +591,76 @@ function MapPage() {
       return
     }
 
-    setMissionStateValue('flying')
+    const previousMissionState = pausedMissionStateRef.current || 'flying'
+
+    setMissionStateValue(previousMissionState)
     startSimulationTimer()
+  }
+
+  function handleLandSimulation() {
+    if (
+      missionStateRef.current !== 'taking_off' &&
+      missionStateRef.current !== 'flying' &&
+      missionStateRef.current !== 'returning'
+    ) {
+      return
+    }
+
+    landingStartAltitudeRef.current = droneAltitudeRef.current
+    landingElapsedRef.current = 0
+    setMissionStateValue('landing')
+    startSimulationTimer()
+  }
+
+  async function handleReturnHomeSimulation() {
+    if (
+      missionStateRef.current !== 'flying' &&
+      missionStateRef.current !== 'returning'
+    ) {
+      return
+    }
+
+    if (!dronePosition || !startPoint) {
+      return
+    }
+
+    try {
+      setError('')
+
+      const returnStart = {
+        lat: dronePosition.lat,
+        lng: dronePosition.lng,
+      }
+
+      const data = await generateRoute(returnStart, startPoint, allObstacles)
+      const coordinates = data.route_coordinates || []
+
+      if (coordinates.length < 2) {
+        handleLandSimulation()
+        return
+      }
+
+      const { segments, totalDistance: routeDistance } =
+        createRouteSegments(coordinates)
+
+      routeSegmentsRef.current = segments
+      segmentIndexRef.current = 0
+      distanceInSegmentRef.current = 0
+      travelledDistanceRef.current = 0
+
+      setRouteCoordinates(coordinates)
+      setTotalDistance(routeDistance)
+      setTravelledDistance(0)
+      setSimulationProgress(0)
+      setEstimatedTimeRemaining(
+        routeDistance / DRONE_SPEED_MPS + LANDING_DURATION_MS / 1000
+      )
+      setMissionStateValue('returning')
+      startSimulationTimer()
+    } catch (err) {
+      setError('Could not generate return-home route. Landing instead.')
+      handleLandSimulation()
+    }
   }
 
   function handleResetSimulation() {
@@ -576,70 +693,171 @@ function MapPage() {
   const canPauseSimulation =
     missionState === 'taking_off' ||
     missionState === 'flying' ||
+    missionState === 'returning' ||
     missionState === 'landing'
 
   const canResumeSimulation = missionState === 'paused'
 
+  const canLandSimulation =
+    missionState === 'taking_off' ||
+    missionState === 'flying' ||
+    missionState === 'returning'
+
+  const canReturnHomeSimulation =
+    missionState === 'flying' || missionState === 'returning'
+
+  const nearestObstacleText = nearestObstacleInfo
+    ? `${nearestObstacleInfo.id || nearestObstacleInfo.type} (${nearestObstacleInfo.distance.toFixed(
+        0
+      )} m, height ${nearestObstacleInfo.height.toFixed(
+        1
+      )} m, required ${nearestObstacleInfo.requiredAltitude.toFixed(1)} m)`
+    : 'None'
+
   return (
     <div className="map-page">
-      <h1>Drone Route Planner</h1>
-      <p>Click once for start, click again for goal, then generate route.</p>
+      <header className="page-header">
+        <h1>Drone Route Planner</h1>
+        <p>
+          Select start and goal on the map, load obstacles, generate a route,
+          then control the mission.
+        </p>
+      </header>
 
-      <div className="controls">
-        <button
-          onClick={handleLoadObstacles}
-          disabled={
-            loading ||
-            isDrawingObstacle ||
-            missionState === 'taking_off' ||
-            missionState === 'flying' ||
-            missionState === 'landing'
-          }
-        >
-          {obstaclesLoading ? 'Loading Obstacles...' : 'Load Obstacles'}
-        </button>
+      <section className="panel mission-controls-panel">
+        <h2>Mission Controls</h2>
 
-        <button
-          onClick={handleGenerateRoute}
-          disabled={
-            loading ||
-            missionState === 'taking_off' ||
-            missionState === 'flying' ||
-            missionState === 'landing'
-          }
-        >
-          {loading ? 'Generating...' : 'Generate Route'}
-        </button>
+        <div className="mission-button-grid">
+          <button
+            className="mission-button"
+            onClick={handleLoadObstacles}
+            disabled={
+              loading ||
+              isDrawingObstacle ||
+              missionState === 'taking_off' ||
+              missionState === 'flying' ||
+              missionState === 'returning' ||
+              missionState === 'landing'
+            }
+          >
+            {obstaclesLoading ? 'Loading Obstacles...' : 'Load Obstacles'}
+          </button>
 
-        <button
-          onClick={handleReset}
-          disabled={
-            loading ||
-            missionState === 'taking_off' ||
-            missionState === 'flying' ||
-            missionState === 'landing'
-          }
-        >
-          Reset
-        </button>
+          <button
+            className="mission-button"
+            onClick={handleGenerateRoute}
+            disabled={
+              loading ||
+              missionState === 'taking_off' ||
+              missionState === 'flying' ||
+              missionState === 'returning' ||
+              missionState === 'landing'
+            }
+          >
+            {loading ? 'Generating...' : 'Generate Route'}
+          </button>
 
-        <button
-          onClick={() => {
-            setIsDrawingObstacle((previousValue) => !previousValue)
-            setPendingObstacleCorner(null)
-          }}
-          disabled={
-            loading ||
-            missionState === 'taking_off' ||
-            missionState === 'flying' ||
-            missionState === 'landing'
-          }
-        >
-          {isDrawingObstacle ? 'Cancel Obstacle' : 'Draw Obstacle'}
-        </button>
+          <button
+            className="mission-button mission-button-primary"
+            onClick={handleStartSimulation}
+            disabled={!canStartSimulation || isDrawingObstacle}
+          >
+            Start
+          </button>
+
+          <button
+            className="mission-button"
+            onClick={handlePauseSimulation}
+            disabled={!canPauseSimulation}
+          >
+            Pause
+          </button>
+
+          <button
+            className="mission-button"
+            onClick={handleResumeSimulation}
+            disabled={!canResumeSimulation}
+          >
+            Resume
+          </button>
+
+          <button
+            className="mission-button mission-button-danger"
+            onClick={handleLandSimulation}
+            disabled={!canLandSimulation}
+          >
+            Land
+          </button>
+
+          <button
+            className="mission-button"
+            onClick={handleReturnHomeSimulation}
+            disabled={!canReturnHomeSimulation}
+          >
+            Return Home
+          </button>
+
+          <button
+            className="mission-button"
+            onClick={handleResetSimulation}
+            disabled={missionState === 'idle' && !dronePosition}
+          >
+            Reset Mission
+          </button>
+
+          <button
+            className="mission-button"
+            onClick={handleReset}
+            disabled={
+              loading ||
+              missionState === 'taking_off' ||
+              missionState === 'flying' ||
+              missionState === 'returning' ||
+              missionState === 'landing'
+            }
+          >
+            Full Reset
+          </button>
+
+          <button
+            className="mission-button"
+            onClick={() => {
+              setIsDrawingObstacle((previousValue) => !previousValue)
+              setPendingObstacleCorner(null)
+            }}
+            disabled={
+              loading ||
+              missionState === 'taking_off' ||
+              missionState === 'flying' ||
+              missionState === 'returning' ||
+              missionState === 'landing'
+            }
+          >
+            {isDrawingObstacle ? 'Cancel Drawing' : 'Draw Obstacle'}
+          </button>
+
+          <button
+            className="mission-button"
+            onClick={() => {
+              setManualObstacles([])
+              setPendingObstacleCorner(null)
+              resetSimulationState()
+            }}
+            disabled={
+              loading ||
+              manualObstacles.length === 0 ||
+              missionState === 'taking_off' ||
+              missionState === 'flying' ||
+              missionState === 'returning' ||
+              missionState === 'landing'
+            }
+          >
+            Clear Manual
+          </button>
+        </div>
 
         {isDrawingObstacle && (
-          <label>
+          <label className="manual-height-input">
             Manual obstacle height (m):
             <input
               type="number"
@@ -650,130 +868,105 @@ function MapPage() {
             />
           </label>
         )}
-
-        <button
-          onClick={() => {
-            setManualObstacles([])
-            setPendingObstacleCorner(null)
-            resetSimulationState()
-          }}
-          disabled={
-            loading ||
-            missionState === 'taking_off' ||
-            missionState === 'flying' ||
-            missionState === 'landing'
-          }
-        >
-          Clear Manual Obstacles
-        </button>
-      </div>
-
-      <div className="simulation-controls">
-        {canStartSimulation && (
-          <button
-            onClick={handleStartSimulation}
-            disabled={isDrawingObstacle}
-          >
-            Start Simulation
-          </button>
-        )}
-
-        {canPauseSimulation && (
-          <button onClick={handlePauseSimulation}>Pause</button>
-        )}
-
-        {canResumeSimulation && (
-          <button onClick={handleResumeSimulation}>Resume</button>
-        )}
-
-        {(missionState !== 'idle' || dronePosition) && (
-          <button onClick={handleResetSimulation}>Reset Simulation</button>
-        )}
-      </div>
+      </section>
 
       {error && <p className="error-message">{error}</p>}
       {obstaclesError && <p className="error-message">{obstaclesError}</p>}
-      {obstaclesLoading && <p>Loading obstacles...</p>}
 
-      <div className="status-panel">
-        <p>
-          <strong>Start:</strong>{' '}
-          {startPoint
-            ? `${startPoint.lat.toFixed(5)}, ${startPoint.lng.toFixed(5)}`
-            : 'Not selected'}
-        </p>
+      <section className="info-grid">
+        <div className="panel info-panel">
+          <h2>Mission Info</h2>
 
-        <p>
-          <strong>Goal:</strong>{' '}
-          {goalPoint
-            ? `${goalPoint.lat.toFixed(5)}, ${goalPoint.lng.toFixed(5)}`
-            : 'Not selected'}
-        </p>
+          <div className="info-list">
+            <p>
+              <strong>Mission State:</strong> {missionState}
+            </p>
 
-        <p>
-          <strong>OSM Obstacles:</strong> {obstacles.length}
-        </p>
+            <p>
+              <strong>Speed:</strong> {DRONE_SPEED_MPS} m/s
+            </p>
 
-        <p>
-          <strong>Manual Obstacles:</strong> {manualObstacles.length}
-        </p>
+            <p>
+              <strong>Progress:</strong> {simulationProgress.toFixed(1)}%
+            </p>
 
-        <p>
-          <strong>Total Obstacles:</strong> {allObstacles.length}
-        </p>
+            <p>
+              <strong>Drone Altitude:</strong> {droneAltitude.toFixed(1)} m
+            </p>
 
-        <p>
-          <strong>Zoom:</strong> {currentZoom}
-        </p>
+            <p>
+              <strong>Route Distance:</strong> {totalDistance.toFixed(1)} m
+            </p>
 
-        <p>
-          <strong>Mission State:</strong> {missionState}
-        </p>
+            <p>
+              <strong>Travelled:</strong> {travelledDistance.toFixed(1)} m
+            </p>
 
-        <p>
-          <strong>Speed:</strong> {DRONE_SPEED_MPS} m/s
-        </p>
+            <p>
+              <strong>Remaining Time:</strong>{' '}
+              {formatTime(estimatedTimeRemaining)}
+            </p>
 
-        <p>
-          <strong>Route Distance:</strong> {totalDistance.toFixed(1)} m
-        </p>
+            <p>
+              <strong>Drone Position:</strong>{' '}
+              {dronePosition
+                ? `${dronePosition.lat.toFixed(5)}, ${dronePosition.lng.toFixed(5)}`
+                : 'Not active'}
+            </p>
+          </div>
+        </div>
 
-        <p>
-          <strong>Travelled:</strong> {travelledDistance.toFixed(1)} m
-        </p>
+        <div className="panel route-panel">
+          <h2>Route & Obstacles</h2>
 
-        <p>
-          <strong>Remaining Time:</strong>{' '}
-          {formatTime(estimatedTimeRemaining)}
-        </p>
+          <div className="info-list">
+            <p>
+              <strong>Start:</strong>{' '}
+              {startPoint
+                ? `${startPoint.lat.toFixed(5)}, ${startPoint.lng.toFixed(5)}`
+                : 'Not selected'}
+            </p>
 
-        <p>
-          <strong>Simulation Progress:</strong>{' '}
-          {simulationProgress.toFixed(1)}%
-        </p>
+            <p>
+              <strong>Goal:</strong>{' '}
+              {goalPoint
+                ? `${goalPoint.lat.toFixed(5)}, ${goalPoint.lng.toFixed(5)}`
+                : 'Not selected'}
+            </p>
 
-        <p>
-          <strong>Drone Position:</strong>{' '}
-          {dronePosition
-            ? `${dronePosition.lat.toFixed(5)}, ${dronePosition.lng.toFixed(5)}`
-            : 'Not active'}
-        </p>
+            <p>
+              <strong>OSM Obstacles:</strong> {obstacles.length}
+            </p>
 
-        <p>
-          <strong>Drone Altitude:</strong> {droneAltitude.toFixed(1)} m
-        </p>
+            <p>
+              <strong>Manual Obstacles:</strong> {manualObstacles.length}
+            </p>
 
-        <p>
-          <strong>Mode:</strong>{' '}
-          {isDrawingObstacle
-            ? pendingObstacleCorner
-              ? 'Select second corner'
-              : 'Select first corner'
-            : missionState === 'idle'
-              ? 'Route selection'
-              : missionState}
-        </p>
-      </div>
+            <p>
+              <strong>Total Obstacles:</strong> {allObstacles.length}
+            </p>
+
+            <p>
+              <strong>Zoom:</strong> {currentZoom}
+            </p>
+
+            <p>
+              <strong>Nearest Obstacle:</strong> {nearestObstacleText}
+            </p>
+
+            <p>
+              <strong>Mode:</strong>{' '}
+              {isDrawingObstacle
+                ? pendingObstacleCorner
+                  ? 'Select second corner'
+                  : 'Select first corner'
+                : missionState === 'idle'
+                  ? 'Route selection'
+                  : missionState}
+            </p>
+          </div>
+        </div>
+      </section>
 
       <MapView
         startPoint={startPoint}

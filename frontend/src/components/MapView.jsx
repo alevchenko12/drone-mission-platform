@@ -63,7 +63,7 @@ function MapView({
           <Popup>
             Drone Position
             <br />
-            Altitude: {droneAltitude.toFixed(1)} m
+            Altitude: {Number(droneAltitude || 0).toFixed(1)} m
           </Popup>
         </Marker>
       )}
