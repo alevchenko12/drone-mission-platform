@@ -1,147 +1,257 @@
 """
 Service functions for planning routes for multiple drones.
-
-Given a list of drone starting positions and a list of target locations,
-the service computes an assignment and then plans collision‑free paths
-for all drones.  The assignment is solved via a bitmask DP (similar to
-the Hungarian method) and the routes are planned sequentially using A*.
 """
+
 from __future__ import annotations
-from typing import List, Optional, Dict, Tuple
+
 from functools import lru_cache
-from math import inf
+from math import inf, isinf
+from typing import Dict, List, Optional, Tuple
 
 from app.planner import (
-    GeoPoint, PlannerObstacle, PlannerBounds,
-    calculate_planner_bounds, PlanningGrid,
-    block_obstacles_on_grid, astar_search
-)
-from app.services.route_service import (
-    to_geo_point, to_planner_obstacle,
-    path_to_route_coordinates, calculate_route_distance
+    GeoPoint,
+    PlannerBounds,
+    PlanningGrid,
+    astar_search,
+    block_obstacles_on_grid,
 )
 
-def _compute_costs_and_paths(base_grid: PlanningGrid,
-                             starts: List[GeoPoint],
-                             goals: List[GeoPoint]
-                             ) -> Tuple[List[List[float]],
-                                        List[List[Optional[List]]]]:
-    """Compute distance costs and raw grid paths between each start and goal."""
+from app.services.route_service import (
+    calculate_route_distance,
+    path_to_route_coordinates,
+    to_geo_point,
+    to_planner_obstacle,
+)
+
+
+def _compute_costs_and_paths(
+    base_grid: PlanningGrid,
+    starts: List[GeoPoint],
+    goals: List[GeoPoint],
+) -> Tuple[List[List[float]], List[List[Optional[List]]]]:
     n = len(starts)
-    cost_matrix = [[inf]*n for _ in range(n)]
-    path_matrix = [[None]*n for _ in range(n)]
-    for i, s in enumerate(starts):
-        start_grid = base_grid.converter.geo_to_grid(s)
-        for j, g in enumerate(goals):
-            goal_grid = base_grid.converter.geo_to_grid(g)
+    cost_matrix = [[inf for _ in range(n)] for _ in range(n)]
+    path_matrix = [[None for _ in range(n)] for _ in range(n)]
+
+    for i, start in enumerate(starts):
+        start_grid = base_grid.converter.geo_to_grid(start)
+
+        for j, goal in enumerate(goals):
+            goal_grid = base_grid.converter.geo_to_grid(goal)
+
             try:
                 path = astar_search(base_grid, start_grid, goal_grid)
             except Exception:
                 path = None
+
             if path:
-                coords = path_to_route_coordinates(base_grid, path)
-                cost_matrix[i][j] = calculate_route_distance(coords)
+                coordinates = path_to_route_coordinates(base_grid, path)
+                cost_matrix[i][j] = calculate_route_distance(coordinates)
                 path_matrix[i][j] = path
-            else:
-                cost_matrix[i][j] = inf
-                path_matrix[i][j] = None
+
     return cost_matrix, path_matrix
 
+
+def _validate_cost_matrix(cost_matrix: List[List[float]]) -> None:
+    if not cost_matrix:
+        raise ValueError("No drones or goals were provided.")
+
+    for drone_index, row in enumerate(cost_matrix):
+        if all(isinf(cost) for cost in row):
+            raise ValueError(
+                f"Drone {drone_index + 1} cannot reach any goal. "
+                "Try moving the drone/goal or reducing blocking obstacles."
+            )
+
+    number_of_goals = len(cost_matrix[0])
+
+    for goal_index in range(number_of_goals):
+        if all(isinf(row[goal_index]) for row in cost_matrix):
+            raise ValueError(
+                f"Goal {goal_index + 1} cannot be reached by any drone. "
+                "Try moving the goal or reducing blocking obstacles."
+            )
+
+
 def _solve_assignment(cost_matrix: List[List[float]]) -> List[int]:
-    """Solve the assignment problem via bitmask DP (for ≤10 drones)."""
     n = len(cost_matrix)
+    _validate_cost_matrix(cost_matrix)
+
     @lru_cache(maxsize=None)
     def best_cost(mask: int, row: int) -> float:
         if row == n:
             return 0.0
+
         best = inf
+
         for col in range(n):
-            if not (mask & (1 << col)):
-                best = min(best, cost_matrix[row][col] +
-                           best_cost(mask | (1 << col), row + 1))
+            if mask & (1 << col):
+                continue
+
+            if isinf(cost_matrix[row][col]):
+                continue
+
+            candidate = cost_matrix[row][col] + best_cost(
+                mask | (1 << col),
+                row + 1,
+            )
+
+            if candidate < best:
+                best = candidate
+
         return best
-    assignment = [-1]*n
+
+    total_best_cost = best_cost(0, 0)
+
+    if isinf(total_best_cost):
+        raise ValueError(
+            "No valid assignment found. Some drones cannot reach goals."
+        )
+
+    assignment = [-1 for _ in range(n)]
+
     def reconstruct(mask: int, row: int) -> None:
         if row == n:
             return
+
         best = inf
         best_col = -1
+
         for col in range(n):
-            if not (mask & (1 << col)):
-                cost = cost_matrix[row][col] + \
-                       best_cost(mask | (1 << col), row + 1)
-                if cost < best:
-                    best, best_col = cost, col
+            if mask & (1 << col):
+                continue
+
+            if isinf(cost_matrix[row][col]):
+                continue
+
+            candidate = cost_matrix[row][col] + best_cost(
+                mask | (1 << col),
+                row + 1,
+            )
+
+            if candidate < best:
+                best = candidate
+                best_col = col
+
+        if best_col == -1:
+            raise ValueError(
+                "No valid assignment found. Some drones cannot reach goals."
+            )
+
         assignment[row] = best_col
         reconstruct(mask | (1 << best_col), row + 1)
+
     reconstruct(0, 0)
     return assignment
 
-def generate_multi_routes(request) -> List[Dict[str, object]]:
-    """
-    Plan routes for multiple drones.
 
-    The request must expose .start_points and .goal_points (equal length).
-    Returns a list of dictionaries with keys: drone_index, goal_index,
-    route_coordinates and distance.
-    """
-    starts = [to_geo_point(p) for p in request.start_points]
-    goals = [to_geo_point(p) for p in request.goal_points]
+def _copy_base_grid(
+    base_grid: PlanningGrid,
+    bounds: PlannerBounds,
+    rows: int,
+    cols: int,
+) -> PlanningGrid:
+    grid = PlanningGrid(bounds=bounds, rows=rows, cols=cols)
+
+    for row in range(rows):
+        for col in range(cols):
+            if base_grid.cells[row][col] == 1:
+                grid.cells[row][col] = 1
+
+    return grid
+
+
+def generate_multi_routes(request) -> List[Dict[str, object]]:
+    starts = [to_geo_point(point) for point in request.start_points]
+    goals = [to_geo_point(point) for point in request.goal_points]
+
     if len(starts) != len(goals):
         raise ValueError("Number of start points and goal points must be equal.")
-    obstacles = [to_planner_obstacle(obs) for obs in request.obstacles]
 
-    # Build bounds covering all starts, goals and obstacle vertices
-    latitudes = [p.lat for p in starts + goals]
-    longitudes = [p.lon for p in starts + goals]
-    for obs in obstacles:
-        for pt in obs.geometry:
-            latitudes.append(pt.lat)
-            longitudes.append(pt.lon)
+    if len(starts) == 0:
+        raise ValueError("At least one drone and one goal are required.")
+
+    obstacles = [to_planner_obstacle(obstacle) for obstacle in request.obstacles]
+
+    latitudes = [point.lat for point in starts + goals]
+    longitudes = [point.lon for point in starts + goals]
+
+    for obstacle in obstacles:
+        for point in obstacle.geometry:
+            latitudes.append(point.lat)
+            longitudes.append(point.lon)
+
     padding = 0.0005
-    bounds = PlannerBounds(min_lat=min(latitudes) - padding,
-                           min_lon=min(longitudes) - padding,
-                           max_lat=max(latitudes) + padding,
-                           max_lon=max(longitudes) + padding)
-    rows = cols = 60
-    base_grid = PlanningGrid(bounds=bounds, rows=rows, cols=cols)
-    block_obstacles_on_grid(base_grid, obstacles,
-                            drone_height=request.drone_parameters.height,
-                            safety_margin=request.drone_parameters.safety_margin)
 
-    # Precompute costs and solve assignment
+    bounds = PlannerBounds(
+        min_lat=min(latitudes) - padding,
+        min_lon=min(longitudes) - padding,
+        max_lat=max(latitudes) + padding,
+        max_lon=max(longitudes) + padding,
+    )
+
+    rows = 60
+    cols = 60
+
+    base_grid = PlanningGrid(bounds=bounds, rows=rows, cols=cols)
+
+    block_obstacles_on_grid(
+        base_grid,
+        obstacles,
+        drone_height=request.drone_parameters.height,
+        safety_margin=request.drone_parameters.safety_margin,
+    )
+
     cost_matrix, _ = _compute_costs_and_paths(base_grid, starts, goals)
     assignment = _solve_assignment(cost_matrix)
 
-    # Sequentially plan each route on a fresh grid, reserving cells to avoid crossings
     blocked_cells: set[Tuple[int, int]] = set()
-    results = []
-    for drone_idx, goal_idx in enumerate(assignment):
-        if goal_idx < 0 or goal_idx >= len(goals):
+    results: List[Dict[str, object]] = []
+
+    for drone_index, goal_index in enumerate(assignment):
+        if goal_index < 0 or goal_index >= len(goals):
             raise ValueError("Invalid assignment produced.")
-        # Build a fresh grid copy and apply reserved cells
-        grid = PlanningGrid(bounds=bounds, rows=rows, cols=cols)
-        for r in range(rows):
-            for c in range(cols):
-                if base_grid.cells[r][c] == 1:
-                    grid.cells[r][c] = 1
-        for (r, c) in blocked_cells:
-            if 0 <= r < rows and 0 <= c < cols:
-                grid.cells[r][c] = 1
-        s_grid = grid.converter.geo_to_grid(starts[drone_idx])
-        g_grid = grid.converter.geo_to_grid(goals[goal_idx])
-        path = astar_search(grid, s_grid, g_grid)
-        if path is None:
-            raise ValueError(f"No valid route found for drone {drone_idx} to goal {goal_idx}.")
-        # Mark cells used by this path as blocked for subsequent drones
+
+        grid = _copy_base_grid(base_grid, bounds, rows, cols)
+
+        start_grid = grid.converter.geo_to_grid(starts[drone_index])
+        goal_grid = grid.converter.geo_to_grid(goals[goal_index])
+
+        for row, col in blocked_cells:
+            if (row, col) == (start_grid.row, start_grid.col):
+                continue
+
+            if (row, col) == (goal_grid.row, goal_grid.col):
+                continue
+
+            if 0 <= row < rows and 0 <= col < cols:
+                grid.cells[row][col] = 1
+
+        try:
+            path = astar_search(grid, start_grid, goal_grid)
+        except Exception:
+            path = None
+
+        if not path:
+            raise ValueError(
+                f"No collision-free route found for Drone {drone_index + 1} "
+                f"to Goal {goal_index + 1}. Try moving points farther apart "
+                "or reducing obstacles."
+            )
+
         for cell in path:
             blocked_cells.add((cell.row, cell.col))
-        coords = path_to_route_coordinates(grid, path)
-        distance = calculate_route_distance(coords)
-        results.append({
-            "drone_index": drone_idx,
-            "goal_index": goal_idx,
-            "route_coordinates": coords,
-            "distance": distance,
-        })
+
+        coordinates = path_to_route_coordinates(grid, path)
+        distance = calculate_route_distance(coordinates)
+
+        results.append(
+            {
+                "drone_index": drone_index,
+                "goal_index": goal_index,
+                "route_coordinates": coordinates,
+                "distance": distance,
+            }
+        )
+
     return results

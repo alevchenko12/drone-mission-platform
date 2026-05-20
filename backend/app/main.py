@@ -1,28 +1,27 @@
-"""
-Main entry point for the drone route planning backend.
-
-This module creates a FastAPI application and includes the
-API routes defined in ``app.api.routes.route``.  Running this
-module with ``uvicorn`` will start the backend server.
-
-Example:
-
-    uvicorn app.main:app --reload
-"""
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.routes.route import router as route_router
+from app.api.routes.obstacles import router as obstacles_router
 
-def create_app() -> FastAPI:
-    """Construct and return the FastAPI application."""
-    app = FastAPI(title="Drone Route Planner API", version="1.0.0")
-    # Include the route planner endpoints (single‑ and multi‑route)
-    app.include_router(route_router)
-    return app
+app = FastAPI(title="Drone Route Planner API")
 
-# Instantiate the FastAPI application
-app = create_app()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/health", tags=["Health"])
-def health_check() -> dict[str, str]:
-    """Simple health check endpoint to verify the service is running."""
+app.include_router(route_router)
+app.include_router(obstacles_router)
+
+@app.get("/health")
+def health_check():
     return {"status": "ok"}
