@@ -32,6 +32,7 @@ function MapView({
   dronePoints = [],
   goalPoints = [],
   multiRoutes = [],
+  droneSimStates = [],
 
   onMapClick,
 
@@ -69,6 +70,10 @@ function MapView({
   }
 
   function toPolygonPosition(point) {
+    if (Array.isArray(point)) {
+      return [point[0], point[1]]
+    }
+
     return [point.lat, point.lon ?? point.lng]
   }
 
@@ -84,12 +89,14 @@ function MapView({
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      <MapClickHandler onMapClick={onMapClick} />
+      {onMapClick && <MapClickHandler onMapClick={onMapClick} />}
 
-      <MapBoundsTracker
-        setCurrentBounds={setCurrentBounds}
-        setCurrentZoom={setCurrentZoom}
-      />
+      {setCurrentBounds && setCurrentZoom && (
+        <MapBoundsTracker
+          setCurrentBounds={setCurrentBounds}
+          setCurrentZoom={setCurrentZoom}
+        />
+      )}
 
       {dronePoints.length > 0
         ? dronePoints.map((point, index) => (
@@ -132,6 +139,24 @@ function MapView({
           </Popup>
         </Marker>
       )}
+
+      {droneSimStates
+        .filter((drone) => drone.position)
+        .map((drone) => (
+          <Marker
+            key={`sim-drone-${drone.id}`}
+            position={toLeafletPosition(drone.position)}
+            icon={droneIcon}
+          >
+            <Popup>
+              Drone {drone.id + 1}
+              <br />
+              State: {drone.state}
+              <br />
+              Altitude: {Number(drone.altitude || 0).toFixed(1)} m
+            </Popup>
+          </Marker>
+        ))}
 
       {multiRoutes.length > 0
         ? multiRoutes.map((assignment, index) => (
