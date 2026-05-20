@@ -1,4 +1,3 @@
-# backend/app/main.py
 """
 Main entry point for the drone route planning backend.
 
