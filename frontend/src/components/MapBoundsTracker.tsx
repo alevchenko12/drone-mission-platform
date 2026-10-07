@@ -1,7 +1,16 @@
 import { useEffect } from 'react'
 import { useMap } from 'react-leaflet'
+import type { MapBounds } from '../types/obstacle'
 
-function MapBoundsTracker({ setCurrentBounds, setCurrentZoom }) {
+interface MapBoundsTrackerProps {
+  setCurrentBounds: (bounds: MapBounds) => void;
+  setCurrentZoom: (zoom: number) => void;
+}
+
+function MapBoundsTracker({
+  setCurrentBounds,
+  setCurrentZoom,
+}: MapBoundsTrackerProps) {
   const map = useMap()
 
   useEffect(() => {

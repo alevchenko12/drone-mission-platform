@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import MapView from '../components/MapView'
-import axios from 'axios'
+import { generateMultiRoutes } from '../services/routeApi'
 import { fetchObstacles } from '../services/obstacleApi'
 import { createRectangleObstacle } from '../utils/manualObstacle'
 
@@ -225,12 +225,9 @@ function MapPage() {
         },
       }
 
-      const response = await axios.post(
-        `${BACKEND_URL}/route/generate-multi`,
-        body
-      )
+      const response = await generateMultiRoutes(body)
 
-      const routeAssignments = response.data.assignments || []
+      const routeAssignments = response.assignments || []
 
       setMultiRoutes(routeAssignments)
       setAssignments(routeAssignments)

@@ -1,4 +1,5 @@
 import L from 'leaflet'
+import type { LatLng, LatLngTuple } from 'leaflet'
 import {
   MapContainer,
   TileLayer,
@@ -9,6 +10,46 @@ import {
 } from 'react-leaflet'
 import MapClickHandler from './MapClickHandler'
 import MapBoundsTracker from './MapBoundsTracker'
+import type { GeoPoint, MapBounds } from '../types/obstacle'
+import type { MapPoint, MultiRouteItem } from '../types/route'
+
+type DisplayPoint = GeoPoint | MapPoint
+type PolygonPoint = DisplayPoint | LatLngTuple
+
+interface DisplayObstacle {
+  id?: string | null;
+  geometry?: PolygonPoint[];
+}
+
+// Only the simulation fields that MapView actually reads.
+interface DisplayDrone {
+  id: number;
+  position: DisplayPoint | null;
+  state: string;
+  altitude: number;
+}
+
+interface MapViewProps {
+  startPoint?: DisplayPoint | null;
+  goalPoint?: DisplayPoint | null;
+  routeCoordinates?: LatLngTuple[];
+
+  dronePoints?: DisplayPoint[];
+  goalPoints?: DisplayPoint[];
+  multiRoutes?: MultiRouteItem[];
+  droneSimStates?: DisplayDrone[];
+
+  onMapClick?: (point: LatLng) => void;
+
+  obstacles?: DisplayObstacle[];
+  manualObstacles?: DisplayObstacle[];
+
+  setCurrentBounds?: (bounds: MapBounds) => void;
+  setCurrentZoom?: (zoom: number) => void;
+
+  dronePosition?: DisplayPoint | null;
+  droneAltitude?: number;
+}
 
 const droneIcon = L.divIcon({
   html: '<div class="drone-icon">✈️</div>',
@@ -24,28 +65,35 @@ const goalIcon = L.divIcon({
   iconAnchor: [14, 14],
 })
 
+function toLeafletPosition(point: DisplayPoint): LatLngTuple {
+  return [point.lat, 'lon' in point ? point.lon : point.lng]
+}
+
+function toPolygonPosition(point: PolygonPoint): LatLngTuple {
+  if (Array.isArray(point)) {
+    return [point[0], point[1]]
+  }
+
+  return toLeafletPosition(point)
+}
+
 function MapView({
   startPoint,
   goalPoint,
   routeCoordinates = [],
-
   dronePoints = [],
   goalPoints = [],
   multiRoutes = [],
   droneSimStates = [],
-
   onMapClick,
-
   obstacles = [],
   manualObstacles = [],
-
   setCurrentBounds,
   setCurrentZoom,
-
   dronePosition,
   droneAltitude,
-}) {
-  const center = [47.4979, 19.0402]
+}: MapViewProps) {
+  const center: LatLngTuple = [47.4979, 19.0402]
   const zoom = 13
 
   const polylineColors = [
@@ -60,22 +108,6 @@ function MapView({
     '#fabebe',
     '#008080',
   ]
-
-  function toLeafletPosition(point) {
-    if (!point) {
-      return null
-    }
-
-    return [point.lat, point.lon ?? point.lng]
-  }
-
-  function toPolygonPosition(point) {
-    if (Array.isArray(point)) {
-      return [point[0], point[1]]
-    }
-
-    return [point.lat, point.lon ?? point.lng]
-  }
 
   return (
     <MapContainer
@@ -140,12 +172,14 @@ function MapView({
         </Marker>
       )}
 
-      {droneSimStates
-        .filter((drone) => drone.position)
-        .map((drone) => (
+      {droneSimStates.map((drone) => {
+        const position = drone.position
+        if (!position) return null
+
+        return (
           <Marker
             key={`sim-drone-${drone.id}`}
-            position={toLeafletPosition(drone.position)}
+            position={toLeafletPosition(position)}
             icon={droneIcon}
           >
             <Popup>
@@ -156,16 +190,16 @@ function MapView({
               Altitude: {Number(drone.altitude || 0).toFixed(1)} m
             </Popup>
           </Marker>
-        ))}
+        )
+      })}
 
       {multiRoutes.length > 0
         ? multiRoutes.map((assignment, index) => (
             <Polyline
               key={`multi-route-${index}`}
-              positions={assignment.route_coordinates.map(([lat, lon]) => [
-                lat,
-                lon,
-              ])}
+              positions={assignment.route_coordinates.map(
+                ([lat, lon]): LatLngTuple => [lat, lon],
+              )}
               pathOptions={{
                 color: polylineColors[index % polylineColors.length],
                 weight: 4,
@@ -176,31 +210,37 @@ function MapView({
             <Polyline positions={routeCoordinates} />
           )}
 
-      {obstacles
-        .filter((obstacle) => obstacle.geometry && obstacle.geometry.length >= 3)
-        .map((obstacle, index) => (
+      {obstacles.map((obstacle, index) => {
+        const geometry = obstacle.geometry
+        if (!geometry || geometry.length < 3) return null
+
+        return (
           <Polygon
             key={obstacle.id || `obstacle-${index}`}
-            positions={obstacle.geometry.map(toPolygonPosition)}
+            positions={geometry.map(toPolygonPosition)}
             pathOptions={{
               weight: 1,
               fillOpacity: 0.4,
             }}
           />
-        ))}
+        )
+      })}
 
-      {manualObstacles
-        .filter((obstacle) => obstacle.geometry && obstacle.geometry.length >= 3)
-        .map((obstacle, index) => (
+      {manualObstacles.map((obstacle, index) => {
+        const geometry = obstacle.geometry
+        if (!geometry || geometry.length < 3) return null
+
+        return (
           <Polygon
             key={obstacle.id || `manual-obstacle-${index}`}
-            positions={obstacle.geometry.map(toPolygonPosition)}
+            positions={geometry.map(toPolygonPosition)}
             pathOptions={{
               weight: 2,
               fillOpacity: 0.3,
             }}
           />
-        ))}
+        )
+      })}
     </MapContainer>
   )
 }

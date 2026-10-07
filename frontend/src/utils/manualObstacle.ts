@@ -1,4 +1,11 @@
-export function createRectangleObstacle(startCorner, endCorner, height = 0) {
+import type { Obstacle } from '../types/obstacle'
+import type { MapPoint } from '../types/route'
+
+export function createRectangleObstacle(
+  startCorner: MapPoint,
+  endCorner: MapPoint,
+  height: number = 0,
+): Obstacle {
   const minLat = Math.min(startCorner.lat, endCorner.lat)
   const maxLat = Math.max(startCorner.lat, endCorner.lat)
   const minLon = Math.min(startCorner.lng, endCorner.lng)
