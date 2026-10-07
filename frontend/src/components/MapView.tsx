@@ -236,7 +236,7 @@ function MapView({
             positions={geometry.map(toPolygonPosition)}
             pathOptions={{
               weight: 2,
-              fillOpacity: 0.3,
+              fillOpacity: 0.3, 
             }}
           />
         )

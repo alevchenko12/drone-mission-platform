@@ -1,104 +1,98 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import axios from 'axios'
+import type { LatLng } from 'leaflet'
+
 import MapView from '../components/MapView'
 import { generateMultiRoutes } from '../services/routeApi'
 import { fetchObstacles } from '../services/obstacleApi'
 import { createRectangleObstacle } from '../utils/manualObstacle'
+import { calculateRouteLength, formatDistance } from '../utils/geo'
+import { normalizeObstacle } from '../utils/routeObstacle'
+import {
+  createSimulationStates,
+  advanceDrone,
+} from '../utils/simulation'
 
-const BACKEND_URL = 'http://127.0.0.1:8000'
+import type { GeoPoint, MapBounds, Obstacle } from '../types/obstacle'
+import type {
+  MultiRouteItem,
+  MultiRouteGenerateRequest,
+} from '../types/route'
+import type {
+  MissionState,
+  DroneSimulationState,
+} from '../types/simulation'
+
 const DRONE_HEIGHT = 14
 const SAFETY_MARGIN = 5
 const DRONE_SPEED_MPS = 8
 const UPDATE_INTERVAL_MS = 200
 
-function getObstacleHeight(obstacle) {
-  const height = Number(obstacle.height || 0)
-
-  if (height > 0) return height
-  if (obstacle.type === 'building') return 20
-  if (obstacle.type === 'restricted_zone') return 100
-
-  return 15
-}
-
-function normalizeObstacle(obstacle) {
-  return {
-    id: obstacle.id || null,
-    source: obstacle.source || 'user',
-    type: obstacle.type || 'restricted_zone',
-    height: getObstacleHeight(obstacle),
-    geometry: (obstacle.geometry || []).map((point) => {
-      if (Array.isArray(point)) return point
-      return [point.lat, point.lon ?? point.lng]
-    }),
-  }
-}
-
-function toRadians(value) {
-  return (value * Math.PI) / 180
-}
-
-function calculateDistanceMeters(a, b) {
-  const earthRadius = 6371000
-  const dLat = toRadians(b.lat - a.lat)
-  const dLon = toRadians(b.lon - a.lon)
-  const lat1 = toRadians(a.lat)
-  const lat2 = toRadians(b.lat)
-
-  const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
-
-  return earthRadius * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
-}
-
-function calculateRouteLength(route) {
-  let distance = 0
-
-  for (let i = 0; i < route.length - 1; i += 1) {
-    distance += calculateDistanceMeters(route[i], route[i + 1])
-  }
-
-  return distance
-}
-
-function formatDistance(distance) {
-  if (!Number.isFinite(distance) || distance <= 0) return '0 m'
-  if (distance >= 1000) return `${(distance / 1000).toFixed(2)} km`
-  return `${Math.round(distance)} m`
-}
-
 function MapPage() {
-  const [dronePoints, setDronePoints] = useState([])
-  const [goalPoints, setGoalPoints] = useState([])
-  const [multiRoutes, setMultiRoutes] = useState([])
-  const [assignments, setAssignments] = useState([])
+  const [dronePoints, setDronePoints] = useState<GeoPoint[]>([])
+  const [goalPoints, setGoalPoints] = useState<GeoPoint[]>([])
+  const [multiRoutes, setMultiRoutes] = useState<MultiRouteItem[]>([])
+  const [assignments, setAssignments] = useState<MultiRouteItem[]>([])
 
-  const [placementMode, setPlacementMode] = useState(null)
+  const [placementMode, setPlacementMode] =
+    useState<'drone' | 'goal' | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const [obstacles, setObstacles] = useState([])
+  const [obstacles, setObstacles] = useState<Obstacle[]>([])
   const [obstaclesLoading, setObstaclesLoading] = useState(false)
   const [obstaclesError, setObstaclesError] = useState('')
 
-  const [manualObstacles, setManualObstacles] = useState([])
+  const [manualObstacles, setManualObstacles] = useState<Obstacle[]>([])
   const [isDrawingObstacle, setIsDrawingObstacle] = useState(false)
-  const [pendingObstacleCorner, setPendingObstacleCorner] = useState(null)
-  const [manualObstacleHeight, setManualObstacleHeight] = useState(0)
+  const [pendingObstacleCorner, setPendingObstacleCorner] =
+    useState<LatLng | null>(null)
+  const [manualObstacleHeight, setManualObstacleHeight] =
+    useState<number | string>(0)
 
-  const [currentBounds, setCurrentBounds] = useState(null)
+  const [currentBounds, setCurrentBounds] =
+    useState<MapBounds | null>(null)
   const [currentZoom, setCurrentZoom] = useState(13)
 
-  const [missionState, setMissionState] = useState('idle')
-  const [droneSimStates, setDroneSimStates] = useState([])
+  const [missionState, setMissionState] =
+    useState<MissionState>('idle')
+  const [droneSimStates, setDroneSimStates] =
+    useState<DroneSimulationState[]>([])
   const [showProgress, setShowProgress] = useState(false)
 
-  const simulationRef = useRef(null)
+  const simulationRef =
+    useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    const allFinished =
+      droneSimStates.length > 0 &&
+      droneSimStates.every(
+        (drone) => drone.state === 'completed' || drone.state === 'landed',
+      )
+
+    if (missionState === 'running' && allFinished) {
+      if (simulationRef.current !== null) {
+        clearInterval(simulationRef.current)
+        simulationRef.current = null
+      }
+
+      setMissionState('completed')
+    }
+  }, [droneSimStates, missionState])
+
+  useEffect(() => {
+    return () => {
+      if (simulationRef.current !== null) {
+        clearInterval(simulationRef.current)
+        simulationRef.current = null
+      }
+    }
+  }, [])
 
   const allObstacles = [...obstacles, ...manualObstacles]
 
   function stopSimulation() {
-    if (simulationRef.current) {
+    if (simulationRef.current !== null) {
       clearInterval(simulationRef.current)
       simulationRef.current = null
     }
@@ -112,7 +106,7 @@ function MapPage() {
     setMissionState('idle')
   }
 
-  function handleMapClick(latlng) {
+  function handleMapClick(latlng: LatLng) {
     setError('')
     clearRoutes()
 
@@ -125,7 +119,7 @@ function MapPage() {
       const newObstacle = createRectangleObstacle(
         pendingObstacleCorner,
         latlng,
-        Number(manualObstacleHeight) || 0
+        Number(manualObstacleHeight) || 0,
       )
 
       setManualObstacles((previous) => [...previous, newObstacle])
@@ -153,7 +147,7 @@ function MapPage() {
   async function handleLoadObstacles() {
     if (!currentBounds) {
       setObstaclesError(
-        'Map bounds are not ready yet. Move or zoom the map and try again.'
+        'Map bounds are not ready yet. Move or zoom the map and try again.',
       )
       return
     }
@@ -166,20 +160,22 @@ function MapPage() {
 
       if (response.source_status === 'rate_limited') {
         setObstaclesError(
-          'Obstacle service is temporarily rate-limited. Keeping previous obstacles.'
+          'Obstacle service is temporarily rate-limited. Keeping previous obstacles.',
         )
         return
       }
 
       if (response.source_status === 'timeout') {
         setObstaclesError(
-          'Obstacle service timed out. Keeping previous obstacles.'
+          'Obstacle service timed out. Keeping previous obstacles.',
         )
         return
       }
 
       if (response.source_status === 'error') {
-        setObstaclesError('Obstacle loading failed. Keeping previous obstacles.')
+        setObstaclesError(
+          'Obstacle loading failed. Keeping previous obstacles.',
+        )
         return
       }
 
@@ -187,7 +183,9 @@ function MapPage() {
       clearRoutes()
     } catch (err) {
       console.error(err)
-      setObstaclesError('Obstacle loading failed. Check backend /obstacles route.')
+      setObstaclesError(
+        'Obstacle loading failed. Check backend /obstacles route.',
+      )
     } finally {
       setObstaclesLoading(false)
     }
@@ -209,7 +207,7 @@ function MapPage() {
       setError('')
       stopSimulation()
 
-      const body = {
+      const body: MultiRouteGenerateRequest = {
         start_points: dronePoints.map((point) => ({
           lat: point.lat,
           lon: point.lon,
@@ -226,7 +224,6 @@ function MapPage() {
       }
 
       const response = await generateMultiRoutes(body)
-
       const routeAssignments = response.assignments || []
 
       setMultiRoutes(routeAssignments)
@@ -234,126 +231,41 @@ function MapPage() {
       setDroneSimStates([])
       setMissionState('idle')
     } catch (err) {
-      console.error(err.response?.data || err)
-      setError(JSON.stringify(err.response?.data?.detail || err.message))
+      console.error(err)
+
+      let message = 'Failed to generate routes.'
+
+      if (axios.isAxiosError<{ detail?: unknown }>(err)) {
+        const detail = err.response?.data?.detail
+
+        if (typeof detail === 'string') {
+          message = detail
+        } else if (detail != null) {
+          message = JSON.stringify(detail) ?? message
+        } else {
+          message = err.message || message
+        }
+      } else if (err instanceof Error) {
+        message = err.message
+      }
+
+      setError(message)
     } finally {
       setLoading(false)
     }
   }
 
-  function createSimulationStates() {
-    return assignments.map((assignment) => {
-      const route = assignment.route_coordinates.map(([lat, lon]) => ({
-        lat,
-        lon,
-      }))
-
-      return {
-        id: assignment.drone_index,
-        goalIndex: assignment.goal_index,
-        route,
-        totalDistance: calculateRouteLength(route),
-        distanceTraveled: 0,
-        currentSegmentIndex: 0,
-        segmentDistance: 0,
-        position: route[0],
-        altitude: 0,
-        state: 'flying',
-      }
-    })
-  }
-
   function updateSimulationStep() {
-    setDroneSimStates((previousStates) => {
-      let allCompleted = true
-
-      const nextStates = previousStates.map((drone) => {
-        if (drone.state === 'completed' || drone.state === 'landed') {
-          return drone
-        }
-
-        const route = drone.route
-
-        if (drone.currentSegmentIndex >= route.length - 1) {
-          return {
-            ...drone,
-            position: route[route.length - 1],
-            altitude: 0,
-            state: 'completed',
-            distanceTraveled: drone.totalDistance,
-          }
-        }
-
-        allCompleted = false
-
-        let remainingMove = (DRONE_SPEED_MPS * UPDATE_INTERVAL_MS) / 1000
-        let segmentIndex = drone.currentSegmentIndex
-        let segmentDistance = drone.segmentDistance
-        let distanceTraveled = drone.distanceTraveled
-
-        while (remainingMove > 0 && segmentIndex < route.length - 1) {
-          const start = route[segmentIndex]
-          const end = route[segmentIndex + 1]
-          const segmentLength = calculateDistanceMeters(start, end)
-          const remainingSegment = segmentLength - segmentDistance
-
-          if (remainingMove >= remainingSegment) {
-            remainingMove -= remainingSegment
-            distanceTraveled += remainingSegment
-            segmentIndex += 1
-            segmentDistance = 0
-          } else {
-            segmentDistance += remainingMove
-            distanceTraveled += remainingMove
-            remainingMove = 0
-          }
-        }
-
-        if (segmentIndex >= route.length - 1) {
-          return {
-            ...drone,
-            currentSegmentIndex: segmentIndex,
-            segmentDistance: 0,
-            distanceTraveled: drone.totalDistance,
-            position: route[route.length - 1],
-            altitude: 0,
-            state: 'completed',
-          }
-        }
-
-        const segmentStart = route[segmentIndex]
-        const segmentEnd = route[segmentIndex + 1]
-        const segmentLength = calculateDistanceMeters(segmentStart, segmentEnd)
-        const ratio = segmentLength > 0 ? segmentDistance / segmentLength : 1
-
-        const position = {
-          lat: segmentStart.lat + (segmentEnd.lat - segmentStart.lat) * ratio,
-          lon: segmentStart.lon + (segmentEnd.lon - segmentStart.lon) * ratio,
-        }
-
-        const altitude = Math.min(
+    setDroneSimStates((previousStates) =>
+      previousStates.map((drone) =>
+        advanceDrone(
+          drone,
+          DRONE_SPEED_MPS,
+          UPDATE_INTERVAL_MS,
           DRONE_HEIGHT,
-          drone.altitude + (DRONE_HEIGHT / 10) * (UPDATE_INTERVAL_MS / 1000)
-        )
-
-        return {
-          ...drone,
-          currentSegmentIndex: segmentIndex,
-          segmentDistance,
-          distanceTraveled,
-          position,
-          altitude,
-          state: 'flying',
-        }
-      })
-
-      if (allCompleted) {
-        stopSimulation()
-        setMissionState('completed')
-      }
-
-      return nextStates
-    })
+        ),
+      ),
+    )
   }
 
   function handleStartMission() {
@@ -362,14 +274,25 @@ function MapPage() {
       return
     }
 
-    stopSimulation()
-    setDroneSimStates(createSimulationStates())
-    setMissionState('running')
+    try {
+      const initialStates = createSimulationStates(assignments)
 
-    simulationRef.current = setInterval(
-      updateSimulationStep,
-      UPDATE_INTERVAL_MS
-    )
+      stopSimulation()
+      setError('')
+      setDroneSimStates(initialStates)
+      setMissionState('running')
+
+      simulationRef.current = setInterval(
+        updateSimulationStep,
+        UPDATE_INTERVAL_MS,
+      )
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not start the simulation.',
+      )
+    }
   }
 
   function handlePauseMission() {
@@ -385,7 +308,7 @@ function MapPage() {
     setMissionState('running')
     simulationRef.current = setInterval(
       updateSimulationStep,
-      UPDATE_INTERVAL_MS
+      UPDATE_INTERVAL_MS,
     )
   }
 
@@ -395,11 +318,13 @@ function MapPage() {
     stopSimulation()
 
     setDroneSimStates((previous) =>
-      previous.map((drone) => ({
-        ...drone,
-        altitude: 0,
-        state: 'landed',
-      }))
+      previous.map(
+        (drone): DroneSimulationState => ({
+          ...drone,
+          altitude: 0,
+          state: 'landed',
+        }),
+      ),
     )
 
     setMissionState('landed')
@@ -413,28 +338,30 @@ function MapPage() {
 
     stopSimulation()
 
-    const returnStates = droneSimStates.map((drone) => {
-      const reversedRoute = [...drone.route].reverse()
+    const returnStates = droneSimStates.map(
+      (drone): DroneSimulationState => {
+        const reversedRoute = [...drone.route].reverse()
 
-      return {
-        ...drone,
-        route: reversedRoute,
-        totalDistance: calculateRouteLength(reversedRoute),
-        distanceTraveled: 0,
-        currentSegmentIndex: 0,
-        segmentDistance: 0,
-        position: reversedRoute[0],
-        altitude: 0,
-        state: 'flying',
-      }
-    })
+        return {
+          ...drone,
+          route: reversedRoute,
+          totalDistance: calculateRouteLength(reversedRoute),
+          distanceTraveled: 0,
+          currentSegmentIndex: 0,
+          segmentDistance: 0,
+          position: reversedRoute[0],
+          altitude: 0,
+          state: 'flying',
+        }
+      },
+    )
 
     setDroneSimStates(returnStates)
     setMissionState('running')
 
     simulationRef.current = setInterval(
       updateSimulationStep,
-      UPDATE_INTERVAL_MS
+      UPDATE_INTERVAL_MS,
     )
   }
 
@@ -471,7 +398,9 @@ function MapPage() {
 
   const canPauseMission = missionState === 'running'
   const canResumeMission = missionState === 'paused'
-  const canLandMission = missionState === 'running' || missionState === 'paused'
+  const canLandMission =
+    missionState === 'running' || missionState === 'paused'
+
   const canReturnHome =
     droneSimStates.length > 0 &&
     (missionState === 'completed' || missionState === 'landed')
@@ -708,14 +637,14 @@ function MapPage() {
               {droneSimStates.map((drone) => {
                 const remaining = Math.max(
                   0,
-                  drone.totalDistance - drone.distanceTraveled
+                  drone.totalDistance - drone.distanceTraveled,
                 )
 
                 const progress =
                   drone.totalDistance > 0
                     ? Math.min(
                         100,
-                        (drone.distanceTraveled / drone.totalDistance) * 100
+                        (drone.distanceTraveled / drone.totalDistance) * 100,
                       )
                     : 0
 
