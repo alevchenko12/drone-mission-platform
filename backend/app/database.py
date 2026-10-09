@@ -1,9 +1,14 @@
 import os
+from collections.abc import Generator
 from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import URL, create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Session,
+    sessionmaker,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env", override=False)
@@ -34,3 +39,8 @@ SessionLocal = sessionmaker(
 
 class Base(DeclarativeBase):
     pass
+
+
+def get_db() -> Generator[Session, None, None]:
+    with SessionLocal() as session:
+        yield session
