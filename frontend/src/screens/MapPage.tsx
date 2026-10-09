@@ -7,7 +7,10 @@ import { generateMultiRoutes } from '../services/routeApi'
 import { fetchObstacles } from '../services/obstacleApi'
 import { createRectangleObstacle } from '../utils/manualObstacle'
 import { calculateRouteLength, formatDistance } from '../utils/geo'
-import { normalizeObstacle } from '../utils/routeObstacle'
+import {
+  normalizeObstacle,
+  restoreObstacle,
+} from '../utils/routeObstacle'
 import {
   createSimulationStates,
   advanceDrone,
@@ -23,6 +26,10 @@ import type {
   DroneSimulationState,
 } from '../types/simulation'
 
+import { saveMission } from '../services/missionApi'
+import SavedMissionsPanel from '../components/SavedMissionsPanel'
+import type { MissionDetail } from '../types/mission'
+
 const DRONE_HEIGHT = 14
 const SAFETY_MARGIN = 5
 const DRONE_SPEED_MPS = 8
@@ -33,6 +40,16 @@ function MapPage() {
   const [goalPoints, setGoalPoints] = useState<GeoPoint[]>([])
   const [multiRoutes, setMultiRoutes] = useState<MultiRouteItem[]>([])
   const [assignments, setAssignments] = useState<MultiRouteItem[]>([])
+  const [missionName, setMissionName] = useState('')
+  const [savingMission, setSavingMission] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [saveMessage, setSaveMessage] = useState('')
+  const [droneHeight, setDroneHeight] = useState(DRONE_HEIGHT)
+  const [safetyMargin, setSafetyMargin] = useState(SAFETY_MARGIN)
+
+  // The exact request used to generate the current routes.
+  const [planningInputs, setPlanningInputs] =
+    useState<MultiRouteGenerateRequest | null>(null)
 
   const [placementMode, setPlacementMode] =
     useState<'drone' | 'goal' | null>(null)
@@ -102,11 +119,18 @@ function MapPage() {
     stopSimulation()
     setMultiRoutes([])
     setAssignments([])
+    setPlanningInputs(null)
     setDroneSimStates([])
     setMissionState('idle')
+    setSaveError('')
+    setSaveMessage('')
   }
 
   function handleMapClick(latlng: LatLng) {
+    if (loading || obstaclesLoading || savingMission) return
+    if (missionState === 'running' || missionState === 'paused') return
+    if (!isDrawingObstacle && placementMode === null) return
+
     setError('')
     clearRoutes()
 
@@ -218,14 +242,16 @@ function MapPage() {
         })),
         obstacles: allObstacles.map(normalizeObstacle),
         drone_parameters: {
-          height: DRONE_HEIGHT,
-          safety_margin: SAFETY_MARGIN,
+          height: droneHeight,
+          safety_margin: safetyMargin,
         },
       }
 
       const response = await generateMultiRoutes(body)
       const routeAssignments = response.assignments || []
 
+      // Store inputs together with the routes generated from them.
+      setPlanningInputs(body)
       setMultiRoutes(routeAssignments)
       setAssignments(routeAssignments)
       setDroneSimStates([])
@@ -262,11 +288,107 @@ function MapPage() {
           drone,
           DRONE_SPEED_MPS,
           UPDATE_INTERVAL_MS,
-          DRONE_HEIGHT,
+          droneHeight,
         ),
       ),
     )
   }
+
+  function handleOpenMission(mission: MissionDetail) {
+  // Check current activity again after the fetch finishes.
+  if (
+    loading ||
+    obstaclesLoading ||
+    savingMission ||
+    missionState === 'running' ||
+    missionState === 'paused'
+  ) {
+    throw new Error('Finish the current operation before opening a mission.')
+  }
+
+  const inputs = mission.planning_inputs
+
+  // Convert everything before changing the current map.
+  const restoredObstacles = inputs.obstacles.map(restoreObstacle)
+
+  const restoredRoutes: MultiRouteItem[] = mission.routes.map((route) => ({
+    drone_index: route.drone_index,
+    goal_index: route.goal_index,
+    route_coordinates: route.route_coordinates,
+    distance: route.distance,
+  }))
+
+  stopSimulation()
+
+  setDronePoints(inputs.start_points)
+  setGoalPoints(inputs.goal_points)
+  setObstacles(
+    restoredObstacles.filter((obstacle) => obstacle.source === 'osm'),
+  )
+  setManualObstacles(
+    restoredObstacles.filter((obstacle) => obstacle.source === 'manual'),
+  )
+
+  setDroneHeight(inputs.drone_parameters.height)
+  setSafetyMargin(inputs.drone_parameters.safety_margin)
+  setPlanningInputs(inputs)
+  setMultiRoutes(restoredRoutes)
+  setAssignments(restoredRoutes)
+
+  setDroneSimStates([])
+  setMissionState('idle')
+  setShowProgress(false)
+  setPlacementMode(null)
+  setIsDrawingObstacle(false)
+  setPendingObstacleCorner(null)
+
+  setMissionName(mission.name)
+  setError('')
+  setObstaclesError('')
+  setSaveError('')
+  setSaveMessage('')
+}
+
+  async function handleSaveMission() {
+  const name = missionName.trim()
+
+  setSaveError('')
+  setSaveMessage('')
+
+  if (!name) {
+    setSaveError('Please enter a mission name.')
+    return
+  }
+
+  if (!planningInputs || assignments.length === 0) {
+    setSaveError('Generate routes before saving a mission.')
+    return
+  }
+
+  if (savingMission || loading || obstaclesLoading) {
+    return
+  }
+
+  try {
+    setSavingMission(true)
+
+    const savedMission = await saveMission({
+      name,
+      planning_inputs: planningInputs,
+      assignments,
+    })
+
+    setSaveMessage(`Saved "${savedMission.name}".`)
+  } catch (err) {
+    setSaveError(
+      err instanceof Error
+        ? err.message
+        : 'Could not save the mission.',
+    )
+  } finally {
+    setSavingMission(false)
+  }
+}
 
   function handleStartMission() {
     if (assignments.length === 0) {
@@ -379,6 +501,7 @@ function MapPage() {
     setGoalPoints([])
     setMultiRoutes([])
     setAssignments([])
+    setPlanningInputs(null)
     setDroneSimStates([])
     setObstacles([])
     setManualObstacles([])
@@ -388,6 +511,11 @@ function MapPage() {
     setMissionState('idle')
     setError('')
     setObstaclesError('')
+    setSaveError('')
+    setSaveMessage('')
+    setMissionName('')
+    setDroneHeight(DRONE_HEIGHT)
+    setSafetyMargin(SAFETY_MARGIN)
   }
 
   const canStartMission =
@@ -398,12 +526,21 @@ function MapPage() {
 
   const canPauseMission = missionState === 'running'
   const canResumeMission = missionState === 'paused'
+
   const canLandMission =
     missionState === 'running' || missionState === 'paused'
 
   const canReturnHome =
     droneSimStates.length > 0 &&
     (missionState === 'completed' || missionState === 'landed')
+
+  const canSaveMission =
+    planningInputs !== null &&
+    assignments.length > 0 &&
+    missionName.trim().length > 0 &&
+    !loading &&
+    !obstaclesLoading &&
+    !savingMission
 
   return (
     <div className="map-page">
@@ -574,6 +711,55 @@ function MapPage() {
       {error && <p className="error-message">{error}</p>}
       {obstaclesError && <p className="error-message">{obstaclesError}</p>}
 
+      <section className="panel">
+  <h2>Save Mission Plan</h2>
+
+  <label>
+    Mission name:
+    <input
+      type="text"
+      maxLength={120}
+      value={missionName}
+      onChange={(event) => {
+        setMissionName(event.target.value)
+        setSaveError('')
+        setSaveMessage('')
+      }}
+      placeholder="For example: Budapest inspection"
+      disabled={savingMission}
+    />
+  </label>
+
+  <button
+    className="mission-button mission-button-primary"
+    onClick={handleSaveMission}
+    disabled={!canSaveMission}
+  >
+    {savingMission ? 'Saving...' : 'Save Mission'}
+  </button>
+
+  {saveError && (
+    <p className="error-message" role="alert">
+      {saveError}
+    </p>
+  )}
+
+  {saveMessage && (
+    <p role="status">{saveMessage}</p>
+  )}
+</section>
+
+      <SavedMissionsPanel
+  onOpenMission={handleOpenMission}
+  disabled={
+    loading ||
+    obstaclesLoading ||
+    savingMission ||
+    missionState === 'running' ||
+    missionState === 'paused'
+  }
+/>
+
       <section className="info-grid">
         <div className="panel info-panel">
           <h2>Mission Info</h2>
@@ -597,13 +783,17 @@ function MapPage() {
               <strong>Total Obstacles:</strong> {allObstacles.length}
             </p>
             <p>
-              <strong>Drone Height:</strong> {DRONE_HEIGHT} m
+              <strong>Drone Height:</strong> {droneHeight} m
             </p>
             <p>
-              <strong>Safety Margin:</strong> {SAFETY_MARGIN} m
+              <strong>Safety Margin:</strong> {safetyMargin} m
             </p>
             <p>
               <strong>Zoom:</strong> {currentZoom}
+            </p>
+            <p>
+              <strong>Plan ready to save:</strong>{' '}
+              {canSaveMission ? 'Yes' : 'No'}
             </p>
           </div>
         </div>

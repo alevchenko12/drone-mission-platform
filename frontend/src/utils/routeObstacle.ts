@@ -22,3 +22,27 @@ export function normalizeObstacle(obstacle: Obstacle): RouteObstacle {
     ]),
   }
 }
+
+export function restoreObstacle(
+  obstacle: RouteObstacle,
+  index: number,
+): Obstacle {
+  if (obstacle.source !== 'osm' && obstacle.source !== 'manual') {
+    throw new Error('The saved plan contains an unsupported obstacle source.')
+  }
+
+  if (obstacle.type !== 'building' && obstacle.type !== 'zone') {
+    throw new Error('The saved plan contains an unsupported obstacle type.')
+  }
+
+  return {
+    id: obstacle.id || `saved-obstacle-${index}`,
+    source: obstacle.source,
+    type: obstacle.type,
+    height: obstacle.height ?? null,
+    geometry: obstacle.geometry.map(([lat, lon]) => ({
+      lat,
+      lon,
+    })),
+  }
+}
