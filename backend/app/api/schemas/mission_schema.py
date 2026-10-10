@@ -10,7 +10,6 @@ from app.api.schemas.route_schema import (
     MultiRouteItem,
 )
 
-
 class SavedRouteInput(MultiRouteItem):
     drone_index: int = Field(ge=0)
     goal_index: int = Field(ge=0)
@@ -77,4 +76,4 @@ class SavedRouteResponse(SavedRouteInput):
 
 class MissionDetail(MissionSummary):
     planning_inputs: MultiRouteGenerateRequest
-    routes: list[SavedRouteResponse]
+    routes: list[SavedRouteResponse]    

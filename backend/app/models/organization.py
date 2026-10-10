@@ -9,6 +9,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.mission import Mission
+    from app.models.user import User
 
 
 class Organization(Base):
@@ -37,6 +38,11 @@ class Organization(Base):
     )
 
     missions: Mapped[list["Mission"]] = relationship(
+        back_populates="organization",
+        passive_deletes="all",
+    )
+    
+    users: Mapped[list["User"]] = relationship(
         back_populates="organization",
         passive_deletes="all",
     )

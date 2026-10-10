@@ -5,6 +5,8 @@ from app.api.routes.route import router as route_router
 from app.api.routes.obstacles import router as obstacles_router
 from app.api.routes.missions import router as missions_router
 
+from app.api.routes.auth import router as auth_router
+
 app = FastAPI(title="Drone Route Planner API")
 
 app.add_middleware(
@@ -23,6 +25,7 @@ app.add_middleware(
 app.include_router(route_router)
 app.include_router(obstacles_router)
 app.include_router(missions_router)
+app.include_router(auth_router)
 
 @app.get("/health")
 def health_check():

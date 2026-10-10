@@ -22,4 +22,10 @@ starlette==0.52.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.5
-uvicorn==0.42.0
+uvicorn==0.42.0argon2-cffi==25.1.0
+argon2-cffi-bindings==26.1.0
+cffi==2.1.1
+pwdlib==0.3.1
+pycparser==3.11
+dnspython==2.9.0
+email-validator==2.3.0
