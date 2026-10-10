@@ -7,8 +7,12 @@ from app.api.schemas.mission_schema import MissionCreate
 from app.models import Mission, Route
 
 
+DEMO_ORGANIZATION_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
 def save_mission(db: Session, payload: MissionCreate) -> Mission:
     mission = Mission(
+        organization_id=DEMO_ORGANIZATION_ID,
         name=payload.name,
         planning_inputs=payload.planning_inputs.model_dump(mode="json"),
         routes=[
@@ -23,7 +27,8 @@ def save_mission(db: Session, payload: MissionCreate) -> Mission:
             for assignment in payload.assignments
         ],
     )
-
+    
+    
     # Save the mission and its routes in one transaction.
     # A failure inside this block rolls back the changes.
     with db.begin():

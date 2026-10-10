@@ -2,13 +2,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.organization import Organization
     from app.models.route import Route
 
 
@@ -26,6 +27,16 @@ class Mission(Base):
         default=uuid4,
     )
 
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "organizations.id",
+            name="fk_missions_organization_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+        index=True,
+    )
+
     name: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
@@ -41,6 +52,10 @@ class Mission(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+    organization: Mapped["Organization"] = relationship(
+        back_populates="missions",
     )
 
     routes: Mapped[list["Route"]] = relationship(
