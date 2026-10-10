@@ -28,7 +28,7 @@ async function checkResponse(
       message = data.detail;
     }
   } catch {
-    // Keep the fallback message if the response is not valid JSON.
+    // Keep the fallback message.
   }
 
   throw new Error(message);
@@ -39,6 +39,7 @@ export async function saveMission(
 ): Promise<MissionDetail> {
   const response = await fetch(`${API_BASE_URL}/missions`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
@@ -61,6 +62,10 @@ export async function listMissions(
 
   const response = await fetch(
     `${API_BASE_URL}/missions?${parameters}`,
+    {
+      credentials: "include",
+      cache: "no-store",
+    },
   );
 
   await checkResponse(response, "Could not load saved missions.");
@@ -73,6 +78,10 @@ export async function getMission(
 ): Promise<MissionDetail> {
   const response = await fetch(
     `${API_BASE_URL}/missions/${encodeURIComponent(missionId)}`,
+    {
+      credentials: "include",
+      cache: "no-store",
+    },
   );
 
   await checkResponse(response, "Could not load the mission.");
@@ -87,6 +96,7 @@ export async function deleteMission(
     `${API_BASE_URL}/missions/${encodeURIComponent(missionId)}`,
     {
       method: "DELETE",
+      credentials: "include",
     },
   );
 

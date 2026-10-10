@@ -30,6 +30,8 @@ import { saveMission } from '../services/missionApi'
 import SavedMissionsPanel from '../components/SavedMissionsPanel'
 import type { MissionDetail } from '../types/mission'
 
+import AuthGate from '../components/AuthGate'
+
 const DRONE_HEIGHT = 14
 const SAFETY_MARGIN = 5
 const DRONE_SPEED_MPS = 8
@@ -869,4 +871,12 @@ function MapPage() {
   )
 }
 
-export default MapPage
+function AuthenticatedMapPage() {
+  return (
+    <AuthGate>
+      <MapPage />
+    </AuthGate>
+  )
+}
+
+export default AuthenticatedMapPage
