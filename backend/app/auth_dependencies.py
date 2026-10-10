@@ -78,3 +78,27 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_mission_writer(user: CurrentUser) -> User:
+    if user.role not in {"admin", "operator"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to save missions.",
+        )
+
+    return user
+
+
+def require_admin(user: CurrentUser) -> User:
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator permission required.",
+        )
+
+    return user
+
+
+MissionWriter = Annotated[User, Depends(require_mission_writer)]
+OrganizationAdmin = Annotated[User, Depends(require_admin)]

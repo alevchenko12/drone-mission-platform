@@ -40,18 +40,18 @@ def mission_payload() -> dict:
     }
 
 
-def test_missions_list_starts_empty(client: TestClient) -> None:
-    response = client.get("/missions")
+def test_missions_list_starts_empty(authenticated_client: TestClient) -> None:
+    response = authenticated_client.get("/missions")
 
     assert response.status_code == 200
     assert response.json() == []
 
 
 def test_save_and_retrieve_mission(
-    client: TestClient,
+    authenticated_client: TestClient,
     mission_payload: dict,
 ) -> None:
-    save_response = client.post("/missions", json=mission_payload)
+    save_response = authenticated_client.post("/missions", json=mission_payload)
 
     assert save_response.status_code == 201
 
@@ -75,12 +75,12 @@ def test_save_and_retrieve_mission(
     assert route["route_coordinates"] == expected_route["route_coordinates"]
     assert route["distance"] == expected_route["distance"]
 
-    get_response = client.get(f"/missions/{mission_id}")
+    get_response = authenticated_client.get(f"/missions/{mission_id}")
 
     assert get_response.status_code == 200
     assert get_response.json() == saved
 
-    list_response = client.get("/missions")
+    list_response = authenticated_client.get("/missions")
 
     assert list_response.status_code == 200
     summaries = list_response.json()
@@ -95,16 +95,16 @@ def test_save_and_retrieve_mission(
 
 @pytest.mark.parametrize("name", ["", "   ", "x" * 121])
 def test_reject_invalid_mission_name(
-    client: TestClient,
+    authenticated_client: TestClient,
     mission_payload: dict,
     name: str,
 ) -> None:
     mission_payload["name"] = name
 
-    response = client.post("/missions", json=mission_payload)
+    response = authenticated_client.post("/missions", json=mission_payload)
 
     assert response.status_code == 422
-    assert client.get("/missions").json() == []
+    assert authenticated_client.get("/missions").json() == []
 
 
 @pytest.mark.parametrize(
@@ -121,21 +121,21 @@ def test_reject_invalid_mission_name(
     ],
 )
 def test_reject_invalid_route(
-    client: TestClient,
+    authenticated_client: TestClient,
     mission_payload: dict,
     field: str,
     value: object,
 ) -> None:
     mission_payload["assignments"][0][field] = value
 
-    response = client.post("/missions", json=mission_payload)
+    response = authenticated_client.post("/missions", json=mission_payload)
 
     assert response.status_code == 422
-    assert client.get("/missions").json() == []
+    assert authenticated_client.get("/missions").json() == []
 
 
 def test_reject_duplicate_drone_assignment(
-    client: TestClient,
+    authenticated_client: TestClient,
     mission_payload: dict,
 ) -> None:
     mission_payload["planning_inputs"]["start_points"].append(
@@ -151,41 +151,41 @@ def test_reject_duplicate_drone_assignment(
     # Two routes now refer to drone 0; drone 1 has no route.
     mission_payload["assignments"].append(second_route)
 
-    response = client.post("/missions", json=mission_payload)
+    response = authenticated_client.post("/missions", json=mission_payload)
 
     assert response.status_code == 422
-    assert client.get("/missions").json() == []
+    assert authenticated_client.get("/missions").json() == []
 
 
-def test_missing_mission_returns_404(client: TestClient) -> None:
+def test_missing_mission_returns_404(authenticated_client: TestClient) -> None:
     mission_id = uuid4()
 
-    assert client.get(f"/missions/{mission_id}").status_code == 404
-    assert client.delete(f"/missions/{mission_id}").status_code == 404
+    assert authenticated_client.get(f"/missions/{mission_id}").status_code == 404
+    assert authenticated_client.delete(f"/missions/{mission_id}").status_code == 404
 
 
-def test_invalid_mission_id_returns_422(client: TestClient) -> None:
-    response = client.get("/missions/not-a-uuid")
+def test_invalid_mission_id_returns_422(authenticated_client: TestClient) -> None:
+    response = authenticated_client.get("/missions/not-a-uuid")
 
     assert response.status_code == 422
 
 
 def test_delete_mission_also_deletes_routes(
-    client: TestClient,
+    authenticated_client: TestClient,
     db_session: Session,
     mission_payload: dict,
 ) -> None:
-    save_response = client.post("/missions", json=mission_payload)
+    save_response = authenticated_client.post("/missions", json=mission_payload)
 
     assert save_response.status_code == 201
     mission_id = save_response.json()["id"]
 
-    delete_response = client.delete(f"/missions/{mission_id}")
+    delete_response = authenticated_client.delete(f"/missions/{mission_id}")
 
     assert delete_response.status_code == 204
     assert delete_response.content == b""
-    assert client.get(f"/missions/{mission_id}").status_code == 404
-    assert client.get("/missions").json() == []
+    assert authenticated_client.get(f"/missions/{mission_id}").status_code == 404
+    assert authenticated_client.get("/missions").json() == []
 
     # Check the database directly for orphaned routes.
     remaining_route_ids = db_session.scalars(

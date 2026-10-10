@@ -12,6 +12,11 @@ from sqlalchemy.orm import Session
 from app.database import engine, get_db
 from app.main import app
 
+from uuid import UUID
+
+from app.models import User
+from app.security import hash_password
+
 
 @pytest.fixture()
 def db_connection() -> Generator[Connection, None, None]:
@@ -62,3 +67,42 @@ def client(
             app.dependency_overrides.pop(get_db, None)
         else:
             app.dependency_overrides[get_db] = previous_override
+            
+@pytest.fixture()
+def admin_user(db_session: Session) -> UUID:
+    with db_session.begin():
+        user = User(
+            email="mission-admin@example.com",
+            password_hash=hash_password("Mission admin test password"),
+            organization_id=UUID(
+                "00000000-0000-0000-0000-000000000001"
+            ),
+            role="admin",
+        )
+
+        db_session.add(user)
+        db_session.flush()
+        user_id = user.id
+
+    return user_id
+
+
+@pytest.fixture()
+def authenticated_client(
+    client: TestClient,
+    admin_user: UUID,
+) -> TestClient:
+    # Also supplies the trusted Origin for POST and DELETE requests.
+    client.headers["Origin"] = "http://localhost:5173"
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "mission-admin@example.com",
+            "password": "Mission admin test password",
+        },
+    )
+
+    assert response.status_code == 200
+
+    return client

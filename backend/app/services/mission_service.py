@@ -7,12 +7,13 @@ from app.api.schemas.mission_schema import MissionCreate
 from app.models import Mission, Route
 
 
-DEMO_ORGANIZATION_ID = UUID("00000000-0000-0000-0000-000000000001")
-
-
-def save_mission(db: Session, payload: MissionCreate) -> Mission:
+def save_mission(
+    db: Session,
+    payload: MissionCreate,
+    organization_id: UUID,
+) -> Mission:
     mission = Mission(
-        organization_id=DEMO_ORGANIZATION_ID,
+        organization_id=organization_id,
         name=payload.name,
         planning_inputs=payload.planning_inputs.model_dump(mode="json"),
         routes=[
@@ -27,18 +28,18 @@ def save_mission(db: Session, payload: MissionCreate) -> Mission:
             for assignment in payload.assignments
         ],
     )
-    
-    
-    # Save the mission and its routes in one transaction.
-    # A failure inside this block rolls back the changes.
-    with db.begin():
+
+    try:
         db.add(mission)
         db.flush()
         db.refresh(mission, attribute_names=["created_at"])
         result_id = mission.id
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
-    # Retrieve the saved mission together with its routes.
-    saved_mission = get_mission(db, result_id)
+    saved_mission = get_mission(db, result_id, organization_id)
 
     if saved_mission is None:
         raise RuntimeError("Saved mission could not be retrieved.")
@@ -48,11 +49,13 @@ def save_mission(db: Session, payload: MissionCreate) -> Mission:
 
 def list_missions(
     db: Session,
+    organization_id: UUID,
     limit: int = 20,
     offset: int = 0,
 ) -> list[Mission]:
     statement = (
         select(Mission)
+        .where(Mission.organization_id == organization_id)
         .order_by(Mission.created_at.desc(), Mission.id.desc())
         .limit(limit)
         .offset(offset)
@@ -61,23 +64,43 @@ def list_missions(
     return list(db.scalars(statement).all())
 
 
-def get_mission(db: Session, mission_id: UUID) -> Mission | None:
+def get_mission(
+    db: Session,
+    mission_id: UUID,
+    organization_id: UUID,
+) -> Mission | None:
     statement = (
         select(Mission)
-        .where(Mission.id == mission_id)
+        .where(
+            Mission.id == mission_id,
+            Mission.organization_id == organization_id,
+        )
         .options(selectinload(Mission.routes))
     )
 
     return db.scalars(statement).one_or_none()
 
 
-def delete_mission(db: Session, mission_id: UUID) -> bool:
-    with db.begin():
-        mission = db.get(Mission, mission_id)
+def delete_mission(
+    db: Session,
+    mission_id: UUID,
+    organization_id: UUID,
+) -> bool:
+    try:
+        statement = select(Mission).where(
+            Mission.id == mission_id,
+            Mission.organization_id == organization_id,
+        )
+
+        mission = db.scalar(statement)
 
         if mission is None:
             return False
 
         db.delete(mission)
+        db.commit()
+        return True
 
-    return True
+    except Exception:
+        db.rollback()
+        raise
