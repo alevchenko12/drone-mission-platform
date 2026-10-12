@@ -21,6 +21,7 @@ from app.services.auth_service import (
     delete_session,
 )
 
+from app.login_rate_limit import require_login_capacity
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,10 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 @router.post(
     "/login",
     response_model=CurrentUserResponse,
-    dependencies=[Depends(require_trusted_origin)],
+    dependencies=[
+        Depends(require_trusted_origin),
+        Depends(require_login_capacity),
+    ],
 )
 def login(
     payload: LoginRequest,

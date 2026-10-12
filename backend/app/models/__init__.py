@@ -3,6 +3,7 @@ from app.models.mission import Mission
 from app.models.route import Route
 from app.models.user import User
 from app.models.user_session import UserSession
+from app.models.login_rate_limit import LoginRateLimit
 
 __all__ = [
     "Organization",
@@ -10,4 +11,5 @@ __all__ = [
     "Route",
     "User",
     "UserSession",
+    "LoginRateLimit",
 ]

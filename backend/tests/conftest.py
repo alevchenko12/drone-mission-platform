@@ -3,6 +3,7 @@ from collections.abc import Generator
 
 # Select the test database before importing application modules.
 os.environ["POSTGRES_DB"] = "drone_platform_test"
+os.environ["RATE_LIMIT_HASH_SECRET"] = "test-only-rate-limit-secret-not-for-deployment"
 
 import pytest
 from fastapi.testclient import TestClient
