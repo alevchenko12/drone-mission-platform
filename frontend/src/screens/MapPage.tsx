@@ -31,13 +31,17 @@ import SavedMissionsPanel from '../components/SavedMissionsPanel'
 import type { MissionDetail } from '../types/mission'
 
 import AuthGate from '../components/AuthGate'
+import type { CurrentUser } from '../types/auth'
 
 const DRONE_HEIGHT = 14
 const SAFETY_MARGIN = 5
 const DRONE_SPEED_MPS = 8
 const UPDATE_INTERVAL_MS = 200
 
-function MapPage() {
+function MapPage({ user }: { user: CurrentUser }) {
+  // UI permissions guide the user; the backend independently enforces them.
+  const canEditPlan = user.role === 'admin' || user.role === 'operator'
+
   const [dronePoints, setDronePoints] = useState<GeoPoint[]>([])
   const [goalPoints, setGoalPoints] = useState<GeoPoint[]>([])
   const [multiRoutes, setMultiRoutes] = useState<MultiRouteItem[]>([])
@@ -129,7 +133,7 @@ function MapPage() {
   }
 
   function handleMapClick(latlng: LatLng) {
-    if (loading || obstaclesLoading || savingMission) return
+    if (!canEditPlan || loading || obstaclesLoading || savingMission) return
     if (missionState === 'running' || missionState === 'paused') return
     if (!isDrawingObstacle && placementMode === null) return
 
@@ -218,6 +222,7 @@ function MapPage() {
   }
 
   async function generateMultiRoute() {
+    if (!canEditPlan) return
     if (dronePoints.length === 0 || goalPoints.length === 0) {
       setError('Please place at least one drone and one goal.')
       return
@@ -352,6 +357,7 @@ function MapPage() {
 }
 
   async function handleSaveMission() {
+  if (!canEditPlan) return
   const name = missionName.trim()
 
   setSaveError('')
@@ -537,6 +543,7 @@ function MapPage() {
     (missionState === 'completed' || missionState === 'landed')
 
   const canSaveMission =
+    canEditPlan &&
     planningInputs !== null &&
     assignments.length > 0 &&
     missionName.trim().length > 0 &&
@@ -544,337 +551,205 @@ function MapPage() {
     !obstaclesLoading &&
     !savingMission
 
+  const simulationActive = missionState === 'running' || missionState === 'paused'
+  const plannerBusy = loading || obstaclesLoading || savingMission
+  const controlsLocked = plannerBusy || simulationActive
+
   return (
-    <div className="map-page">
+    <main className="map-page">
       <header className="page-header">
-        <h1>Multi-Drone Route Planner</h1>
-        <p>
-          Add drones and goals, load or draw obstacles, generate routes, then
-          start real-time multi-drone simulation.
-        </p>
+        <div>
+          <h1>Drone Mission Platform</h1>
+          <p>Plan routes, explore saved missions and simulate flights.</p>
+        </div>
+        <span className="status-badge">{missionState}</span>
       </header>
 
-      <section className="panel mission-controls-panel">
-        <h2>Planner Controls</h2>
+      {/* The map occupies at least two-thirds of the desktop workspace. */}
+      <div className="planner-workspace">
+        <section className="map-panel" aria-label="Mission map">
+          <MapView
+            dronePoints={dronePoints}
+            goalPoints={goalPoints}
+            multiRoutes={multiRoutes}
+            droneSimStates={droneSimStates}
+            onMapClick={handleMapClick}
+            obstacles={obstacles}
+            manualObstacles={manualObstacles}
+            setCurrentBounds={setCurrentBounds}
+            setCurrentZoom={setCurrentZoom}
+            dronePosition={null}
+            droneAltitude={0}
+          />
+        </section>
 
-        <div className="mission-button-grid">
-          <button
-            className={
-              placementMode === 'drone'
-                ? 'mission-button mission-button-primary'
-                : 'mission-button'
-            }
-            onClick={() => {
-              setPlacementMode(placementMode === 'drone' ? null : 'drone')
-              setIsDrawingObstacle(false)
-              setPendingObstacleCorner(null)
-            }}
-            disabled={loading || missionState === 'running'}
-          >
-            {placementMode === 'drone' ? 'Placing Drone...' : 'Add Drone'}
-          </button>
+        <aside className="planner-sidebar" aria-label="Mission controls">
+          <section className="panel">
+            <h2>{canEditPlan ? 'Plan a mission' : 'View a mission'}</h2>
+            {!canEditPlan && <p className="muted">Viewer access: open saved plans and explore their simulations.</p>}
+            {canEditPlan && (
+              <>
+                <div className="mission-button-grid">
+                  <button
+                    className={`mission-button ${placementMode === 'drone' ? 'mission-button-primary' : ''}`}
+                    aria-pressed={placementMode === 'drone'}
+                    disabled={controlsLocked}
+                    onClick={() => {
+                      setPlacementMode(placementMode === 'drone' ? null : 'drone')
+                      setIsDrawingObstacle(false)
+                      setPendingObstacleCorner(null)
+                    }}
+                  >Add drone</button>
+                  <button
+                    className={`mission-button ${placementMode === 'goal' ? 'mission-button-primary' : ''}`}
+                    aria-pressed={placementMode === 'goal'}
+                    disabled={controlsLocked}
+                    onClick={() => {
+                      setPlacementMode(placementMode === 'goal' ? null : 'goal')
+                      setIsDrawingObstacle(false)
+                      setPendingObstacleCorner(null)
+                    }}
+                  >Add goal</button>
+                  <button
+                    className={`mission-button ${isDrawingObstacle ? 'mission-button-primary' : ''}`}
+                    aria-pressed={isDrawingObstacle}
+                    disabled={controlsLocked}
+                    onClick={() => {
+                      setIsDrawingObstacle((previous) => !previous)
+                      setPendingObstacleCorner(null)
+                      setPlacementMode(null)
+                    }}
+                  >{isDrawingObstacle ? 'Cancel drawing' : 'Draw obstacle'}</button>
+                  <button
+                    className="mission-button"
+                    disabled={controlsLocked || isDrawingObstacle}
+                    onClick={handleLoadObstacles}
+                  >{obstaclesLoading ? 'Loading...' : 'Load obstacles'}</button>
+                </div>
+                {(placementMode || isDrawingObstacle) && (
+                  <p className="muted" role="status">
+                    {isDrawingObstacle
+                      ? pendingObstacleCorner ? 'Click the opposite corner.' : 'Click the first obstacle corner.'
+                      : `Click the map to place a ${placementMode}.`}
+                  </p>
+                )}
+                {isDrawingObstacle && (
+                  <label className="field-label">
+                    Obstacle height (m)
+                    <input type="number" min="0" value={manualObstacleHeight}
+                      onChange={(event) => setManualObstacleHeight(event.target.value)}
+                      disabled={controlsLocked} />
+                  </label>
+                )}
+                <button
+                  className="mission-button mission-button-primary full-width"
+                  onClick={generateMultiRoute}
+                  disabled={controlsLocked || isDrawingObstacle || dronePoints.length === 0 || dronePoints.length !== goalPoints.length}
+                >{loading ? 'Generating...' : 'Generate routes'}</button>
+                <details className="secondary-controls">
+                  <summary>Clear and reset</summary>
+                  <div className="mission-button-grid">
+                    <button className="mission-button" onClick={() => {
+                      setManualObstacles([])
+                      setPendingObstacleCorner(null)
+                      clearRoutes()
+                    }} disabled={controlsLocked || manualObstacles.length === 0}>Clear manual</button>
+                    <button className="mission-button" onClick={handleClearPoints} disabled={controlsLocked}>Clear points</button>
+                    <button className="mission-button mission-button-danger" onClick={handleFullReset} disabled={controlsLocked}>Full reset</button>
+                  </div>
+                </details>
+              </>
+            )}
+            {error && <p className="error-message" role="alert">{error}</p>}
+            {obstaclesError && <p className="error-message" role="alert">{obstaclesError}</p>}
+          </section>
 
-          <button
-            className={
-              placementMode === 'goal'
-                ? 'mission-button mission-button-primary'
-                : 'mission-button'
-            }
-            onClick={() => {
-              setPlacementMode(placementMode === 'goal' ? null : 'goal')
-              setIsDrawingObstacle(false)
-              setPendingObstacleCorner(null)
-            }}
-            disabled={loading || missionState === 'running'}
-          >
-            {placementMode === 'goal' ? 'Placing Goal...' : 'Add Goal'}
-          </button>
+          <section className="panel">
+            <h2>Simulation</h2>
+            <div className="mission-button-grid">
+              <button className="mission-button" onClick={handleStartMission} disabled={plannerBusy || !canStartMission}>Start</button>
+              {canPauseMission && <button className="mission-button" onClick={handlePauseMission}>Pause</button>}
+              {canResumeMission && <button className="mission-button" onClick={handleResumeMission}>Resume</button>}
+              {canLandMission && <button className="mission-button mission-button-danger" onClick={handleLandMission}>Land</button>}
+              {canReturnHome && <button className="mission-button" onClick={handleReturnHome} disabled={plannerBusy}>Return home</button>}
+            </div>
+            <p className="muted">Local simulation of the displayed plan.</p>
+            {droneSimStates.length > 0 && (
+              <>
+                <button className="mission-button" onClick={() => setShowProgress((previous) => !previous)} aria-expanded={showProgress}>
+                  {showProgress ? 'Hide progress' : 'Show progress'}
+                </button>
+                {showProgress && <ul className="progress-list">
+                  {droneSimStates.map((drone) => {
+                    const remaining = Math.max(0, drone.totalDistance - drone.distanceTraveled)
+                    const progress = drone.totalDistance > 0
+                      ? Math.min(100, (drone.distanceTraveled / drone.totalDistance) * 100) : 0
+                    return <li key={drone.id}>
+                      <strong>Drone {drone.id + 1}</strong> · {drone.state}
+                      <progress max={100} value={progress} aria-label={`Drone ${drone.id + 1} progress`} />
+                      <span>{progress.toFixed(1)}% · {formatDistance(remaining)} remaining · {drone.altitude.toFixed(1)} m altitude</span>
+                    </li>
+                  })}
+                </ul>}
+              </>
+            )}
+          </section>
 
-          <button
-            className="mission-button"
-            onClick={handleLoadObstacles}
-            disabled={loading || obstaclesLoading || isDrawingObstacle}
-          >
-            {obstaclesLoading ? 'Loading Obstacles...' : 'Load Obstacles'}
-          </button>
-
-          <button
-            className={
-              isDrawingObstacle
-                ? 'mission-button mission-button-primary'
-                : 'mission-button'
-            }
-            onClick={() => {
-              setIsDrawingObstacle((previous) => !previous)
-              setPendingObstacleCorner(null)
-              setPlacementMode(null)
-            }}
-            disabled={loading || missionState === 'running'}
-          >
-            {isDrawingObstacle ? 'Cancel Drawing' : 'Draw Obstacle'}
-          </button>
-
-          <button
-            className="mission-button"
-            onClick={() => {
-              setManualObstacles([])
-              setPendingObstacleCorner(null)
-              clearRoutes()
-            }}
-            disabled={loading || manualObstacles.length === 0}
-          >
-            Clear Manual
-          </button>
-
-          <button
-            className="mission-button mission-button-primary"
-            onClick={generateMultiRoute}
-            disabled={
-              loading ||
-              missionState === 'running' ||
-              dronePoints.length === 0 ||
-              dronePoints.length !== goalPoints.length
-            }
-          >
-            {loading ? 'Generating...' : 'Generate Multi-Route'}
-          </button>
-
-          <button
-            className="mission-button"
-            onClick={handleStartMission}
-            disabled={!canStartMission}
-          >
-            Start
-          </button>
-
-          <button
-            className="mission-button"
-            onClick={handlePauseMission}
-            disabled={!canPauseMission}
-          >
-            Pause
-          </button>
-
-          <button
-            className="mission-button"
-            onClick={handleResumeMission}
-            disabled={!canResumeMission}
-          >
-            Resume
-          </button>
-
-          <button
-            className="mission-button mission-button-danger"
-            onClick={handleLandMission}
-            disabled={!canLandMission}
-          >
-            Land
-          </button>
-
-          <button
-            className="mission-button"
-            onClick={handleReturnHome}
-            disabled={!canReturnHome}
-          >
-            Return Home
-          </button>
-
-          <button
-            className="mission-button"
-            onClick={handleClearPoints}
-            disabled={loading || missionState === 'running'}
-          >
-            Clear Points
-          </button>
-
-          <button
-            className="mission-button mission-button-danger"
-            onClick={handleFullReset}
-            disabled={loading}
-          >
-            Full Reset
-          </button>
-        </div>
-
-        {isDrawingObstacle && (
-          <label className="manual-height-input">
-            Manual obstacle height (m):
-            <input
-              type="number"
-              min="0"
-              value={manualObstacleHeight}
-              onChange={(event) => setManualObstacleHeight(event.target.value)}
-              disabled={loading}
-            />
-          </label>
-        )}
-      </section>
-
-      {error && <p className="error-message">{error}</p>}
-      {obstaclesError && <p className="error-message">{obstaclesError}</p>}
-
-      <section className="panel">
-  <h2>Save Mission Plan</h2>
-
-  <label>
-    Mission name:
-    <input
-      type="text"
-      maxLength={120}
-      value={missionName}
-      onChange={(event) => {
-        setMissionName(event.target.value)
-        setSaveError('')
-        setSaveMessage('')
-      }}
-      placeholder="For example: Budapest inspection"
-      disabled={savingMission}
-    />
-  </label>
-
-  <button
-    className="mission-button mission-button-primary"
-    onClick={handleSaveMission}
-    disabled={!canSaveMission}
-  >
-    {savingMission ? 'Saving...' : 'Save Mission'}
-  </button>
-
-  {saveError && (
-    <p className="error-message" role="alert">
-      {saveError}
-    </p>
-  )}
-
-  {saveMessage && (
-    <p role="status">{saveMessage}</p>
-  )}
-</section>
-
-      <SavedMissionsPanel
-  onOpenMission={handleOpenMission}
-  disabled={
-    loading ||
-    obstaclesLoading ||
-    savingMission ||
-    missionState === 'running' ||
-    missionState === 'paused'
-  }
-/>
-
-      <section className="info-grid">
-        <div className="panel info-panel">
-          <h2>Mission Info</h2>
-          <div className="info-list">
-            <p>
-              <strong>Mission State:</strong> {missionState}
-            </p>
-            <p>
-              <strong>Drones:</strong> {dronePoints.length}
-            </p>
-            <p>
-              <strong>Goals:</strong> {goalPoints.length}
-            </p>
-            <p>
-              <strong>OSM Obstacles:</strong> {obstacles.length}
-            </p>
-            <p>
-              <strong>Manual Obstacles:</strong> {manualObstacles.length}
-            </p>
-            <p>
-              <strong>Total Obstacles:</strong> {allObstacles.length}
-            </p>
-            <p>
-              <strong>Drone Height:</strong> {droneHeight} m
-            </p>
-            <p>
-              <strong>Safety Margin:</strong> {safetyMargin} m
-            </p>
-            <p>
-              <strong>Zoom:</strong> {currentZoom}
-            </p>
-            <p>
-              <strong>Plan ready to save:</strong>{' '}
-              {canSaveMission ? 'Yes' : 'No'}
-            </p>
-          </div>
-        </div>
-
-        <div className="panel route-panel">
-          <h2>Assignments</h2>
-
-          {assignments.length === 0 ? (
-            <p>No assignments yet.</p>
-          ) : (
-            <ul>
-              {assignments.map((assignment) => (
+          <details className="panel mission-details" open>
+            <summary>Mission details</summary>
+            <dl className="mission-stats">
+              <div><dt>Drones / goals</dt><dd>{dronePoints.length} / {goalPoints.length}</dd></div>
+              <div><dt>OSM / manual obstacles</dt><dd>{obstacles.length} / {manualObstacles.length}</dd></div>
+              <div><dt>Flight height</dt><dd>{droneHeight} m</dd></div>
+              <div><dt>Safety margin</dt><dd>{safetyMargin} m</dd></div>
+              <div><dt>Map zoom</dt><dd>{currentZoom}</dd></div>
+            </dl>
+            {assignments.length === 0 ? <p className="muted">No routes loaded.</p> : (
+              <ul className="assignment-list">{assignments.map((assignment) => (
                 <li key={`${assignment.drone_index}-${assignment.goal_index}`}>
-                  Drone {assignment.drone_index + 1} → Goal{' '}
-                  {assignment.goal_index + 1}
+                  Drone {assignment.drone_index + 1} → Goal {assignment.goal_index + 1}
                 </li>
-              ))}
-            </ul>
-          )}
+              ))}</ul>
+            )}
+          </details>
+        </aside>
+      </div>
 
-          <button
-            className="mission-button"
-            onClick={() => setShowProgress((previous) => !previous)}
-            disabled={droneSimStates.length === 0}
-          >
-            {showProgress ? 'Hide Progress' : 'Show Progress'}
-          </button>
-
-          {showProgress && droneSimStates.length > 0 && (
-            <ul className="progress-list">
-              {droneSimStates.map((drone) => {
-                const remaining = Math.max(
-                  0,
-                  drone.totalDistance - drone.distanceTraveled,
-                )
-
-                const progress =
-                  drone.totalDistance > 0
-                    ? Math.min(
-                        100,
-                        (drone.distanceTraveled / drone.totalDistance) * 100,
-                      )
-                    : 0
-
-                return (
-                  <li key={`progress-${drone.id}`}>
-                    Drone {drone.id + 1}: {drone.state} | Progress:{' '}
-                    {progress.toFixed(1)}% | Remaining:{' '}
-                    {formatDistance(remaining)} | Altitude:{' '}
-                    {drone.altitude.toFixed(1)} m
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      <MapView
-        dronePoints={dronePoints}
-        goalPoints={goalPoints}
-        multiRoutes={multiRoutes}
-        droneSimStates={droneSimStates}
-        onMapClick={handleMapClick}
-        obstacles={obstacles}
-        manualObstacles={manualObstacles}
-        setCurrentBounds={setCurrentBounds}
-        setCurrentZoom={setCurrentZoom}
-        dronePosition={null}
-        droneAltitude={0}
-      />
-    </div>
+      {/* Save and reopen are adjacent, rather than pushing the map downward. */}
+      <div className="mission-library-grid">
+        <section className="panel">
+          <h2>Save mission plan</h2>
+          {canEditPlan ? (
+            <>
+              <label className="field-label" htmlFor="mission-name">Mission name</label>
+              <div className="save-form-row">
+                <input id="mission-name" type="text" maxLength={120} value={missionName}
+                  placeholder="For example: Budapest inspection" disabled={savingMission}
+                  onChange={(event) => {
+                    setMissionName(event.target.value)
+                    setSaveError('')
+                    setSaveMessage('')
+                  }} />
+                <button className="mission-button mission-button-primary" onClick={handleSaveMission} disabled={!canSaveMission}>
+                  {savingMission ? 'Saving...' : 'Save plan'}
+                </button>
+              </div>
+              <p className="muted">Saves routes and planning inputs. Each save creates a new plan.</p>
+              {saveError && <p className="error-message" role="alert">{saveError}</p>}
+              {saveMessage && <p className="success-message" role="status">{saveMessage}</p>}
+            </>
+          ) : <p className="muted">Your viewer role can open saved missions. Operators and admins can save new plans.</p>}
+        </section>
+        <SavedMissionsPanel onOpenMission={handleOpenMission} disabled={controlsLocked} />
+      </div>
+    </main>
   )
 }
 
 function AuthenticatedMapPage() {
   return (
     <AuthGate>
-      <MapPage />
+      {(user) => <MapPage user={user} />}
     </AuthGate>
   )
 }

@@ -1,7 +1,9 @@
+import { useEffect } from 'react'
 import L from 'leaflet'
 import type { LatLng, LatLngTuple } from 'leaflet'
 import {
   MapContainer,
+  useMap,
   TileLayer,
   Marker,
   Popup,
@@ -77,6 +79,19 @@ function toPolygonPosition(point: PolygonPoint): LatLngTuple {
   return toLeafletPosition(point)
 }
 
+// Leaflet needs a size update when the responsive map container changes.
+function MapResizeTracker() {
+  const map = useMap()
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => map.invalidateSize())
+    observer.observe(map.getContainer())
+    return () => observer.disconnect()
+  }, [map])
+
+  return null
+}
+
 function MapView({
   startPoint,
   goalPoint,
@@ -114,8 +129,9 @@ function MapView({
       center={center}
       zoom={zoom}
       scrollWheelZoom={true}
-      style={{ height: '600px', width: '100%' }}
+      className="planner-map"
     >
+      <MapResizeTracker />
       <TileLayer
         attribution="&copy; OpenStreetMap contributors"
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"

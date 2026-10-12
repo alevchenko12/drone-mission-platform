@@ -7,7 +7,7 @@ import { getCurrentUser, login, logout } from '../services/authApi'
 import type { CurrentUser } from '../types/auth'
 
 interface AuthGateProps {
-  children: ReactNode
+  children: (user: CurrentUser) => ReactNode
 }
 
 function AuthGate({ children }: AuthGateProps) {
@@ -99,8 +99,8 @@ function AuthGate({ children }: AuthGateProps) {
 
   if (!user) {
     return (
-      <main className="map-page">
-        <section className="panel">
+      <main className="login-page">
+        <section className="panel login-panel">
           <h1>Drone Mission Platform</h1>
           <p>Log in to access your organization’s mission plans.</p>
 
@@ -153,7 +153,7 @@ function AuthGate({ children }: AuthGateProps) {
 
   return (
     <>
-      <section className="panel">
+      <section className="account-bar">
         <p>
           Signed in as <strong>{user.email}</strong>
           {' — '}Role: {user.role}
@@ -174,7 +174,8 @@ function AuthGate({ children }: AuthGateProps) {
         )}
       </section>
 
-      {children}
+      {/* Call the function to render the planner with the current user. */}
+      {children(user)}
     </>
   )
 }

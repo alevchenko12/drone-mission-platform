@@ -96,13 +96,15 @@ function SavedMissionsPanel({
         <>
           <p>Showing up to 20 of the most recent missions.</p>
 
-          <ul>
+          <ul className="saved-mission-list">
             {missions.map((mission) => (
               <li key={mission.id}>
-                <strong>{mission.name}</strong>
-                {' — '}
-                {new Date(mission.created_at).toLocaleString()}
-                {' '}
+                <div>
+                  <strong>{mission.name}</strong>
+                  <time dateTime={mission.created_at}>
+                    {new Date(mission.created_at).toLocaleString()}
+                  </time>
+                </div>
                 <button
                   className="mission-button"
                   onClick={() => handleOpenMission(mission.id)}
