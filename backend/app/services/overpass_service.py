@@ -1,6 +1,12 @@
 import hashlib
-import httpx
+import logging
+import time
 from typing import Any, Dict, List, Optional
+
+import httpx
+
+
+logger = logging.getLogger(__name__)
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
@@ -14,7 +20,9 @@ def _stable_random_height(element_id: Any) -> float:
     value = int(digest[:8], 16)
 
     normalized = value / 0xFFFFFFFF
-    height = UNKNOWN_HEIGHT_MIN + normalized * (UNKNOWN_HEIGHT_MAX - UNKNOWN_HEIGHT_MIN)
+    height = UNKNOWN_HEIGHT_MIN + normalized * (
+        UNKNOWN_HEIGHT_MAX - UNKNOWN_HEIGHT_MIN
+    )
 
     return round(height, 1)
 
@@ -26,12 +34,12 @@ def _build_overpass_query(
     max_lon: float,
 ) -> str:
     return (
-        f"[out:json][timeout:25];"
-        f"("
+        "[out:json][timeout:25];"
+        "("
         f'way["building"]({min_lat},{min_lon},{max_lat},{max_lon});'
         f'relation["building"]({min_lat},{min_lon},{max_lat},{max_lon});'
-        f");"
-        f"out geom;"
+        ");"
+        "out geom;"
     )
 
 
@@ -57,8 +65,11 @@ def _parse_height(tags: Dict[str, Any], fallback_seed: Any) -> float:
     return _stable_random_height(fallback_seed)
 
 
-def _way_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _way_to_obstacle(
+    element: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
     geometry = element.get("geometry", [])
+
     if len(geometry) < 3:
         return None
 
@@ -66,17 +77,26 @@ def _way_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "id": f"osm-{element['type']}-{element['id']}",
         "source": "osm",
         "type": "building",
-        "geometry": [{"lat": p["lat"], "lon": p["lon"]} for p in geometry],
-        "height": _parse_height(element.get("tags", {}), element.get("id")),
+        "geometry": [
+            {"lat": point["lat"], "lon": point["lon"]}
+            for point in geometry
+        ],
+        "height": _parse_height(
+            element.get("tags", {}),
+            element.get("id"),
+        ),
     }
 
 
-def _relation_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _relation_to_obstacle(
+    element: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
     members = element.get("members", [])
 
     for member in members:
         if member.get("role") == "outer" and "geometry" in member:
             geometry = member.get("geometry", [])
+
             if len(geometry) < 3:
                 continue
 
@@ -84,8 +104,14 @@ def _relation_to_obstacle(element: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 "id": f"osm-{element['type']}-{element['id']}",
                 "source": "osm",
                 "type": "building",
-                "geometry": [{"lat": p["lat"], "lon": p["lon"]} for p in geometry],
-                "height": _parse_height(element.get("tags", {}), element.get("id")),
+                "geometry": [
+                    {"lat": point["lat"], "lon": point["lon"]}
+                    for point in geometry
+                ],
+                "height": _parse_height(
+                    element.get("tags", {}),
+                    element.get("id"),
+                ),
             }
 
     return None
@@ -98,6 +124,10 @@ async def fetch_building_obstacles(
     max_lon: float,
 ) -> List[Dict[str, Any]]:
     query = _build_overpass_query(min_lat, min_lon, max_lat, max_lon)
+
+    # Monotonic time measures duration without clock-change effects.
+    started_at = time.monotonic()
+    bounding_box = (min_lat, min_lon, max_lat, max_lon)
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -114,10 +144,25 @@ async def fetch_building_obstacles(
             data = response.json()
 
     except httpx.TimeoutException as exc:
+        # Distinguish connect/read/write timeouts in backend logs.
+        logger.warning(
+            "Overpass client timeout: kind=%s elapsed=%.1fs bbox=%s",
+            type(exc).__name__,
+            time.monotonic() - started_at,
+            bounding_box,
+        )
         raise RuntimeError("timeout") from exc
 
     except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response else None
+        status_code = exc.response.status_code
+
+        # An upstream 504 differs from an HTTPX client timeout.
+        logger.warning(
+            "Overpass HTTP failure: status=%s elapsed=%.1fs bbox=%s",
+            status_code,
+            time.monotonic() - started_at,
+            bounding_box,
+        )
 
         if status_code == 429:
             raise RuntimeError("rate_limited") from exc
@@ -131,9 +176,20 @@ async def fetch_building_obstacles(
         raise RuntimeError(f"http_{status_code}") from exc
 
     except httpx.RequestError as exc:
+        logger.warning(
+            "Overpass connection failure: kind=%s elapsed=%.1fs bbox=%s",
+            type(exc).__name__,
+            time.monotonic() - started_at,
+            bounding_box,
+        )
         raise RuntimeError("request_failed") from exc
 
     except ValueError as exc:
+        logger.warning(
+            "Overpass returned invalid JSON: elapsed=%.1fs bbox=%s",
+            time.monotonic() - started_at,
+            bounding_box,
+        )
         raise RuntimeError("invalid_json") from exc
 
     elements = data.get("elements", [])
