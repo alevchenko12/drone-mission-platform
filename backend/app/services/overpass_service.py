@@ -177,8 +177,10 @@ async def fetch_building_obstacles(
 
     except httpx.RequestError as exc:
         logger.warning(
-            "Overpass connection failure: kind=%s elapsed=%.1fs bbox=%s",
+            "Overpass connection failure: kind=%s reason=%s "
+            "elapsed=%.1fs bbox=%s",
             type(exc).__name__,
+            str(exc),
             time.monotonic() - started_at,
             bounding_box,
         )
