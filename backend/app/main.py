@@ -7,19 +7,16 @@ from app.api.routes.missions import router as missions_router
 
 from app.api.routes.auth import router as auth_router
 
+from app.auth_dependencies import ALLOWED_ORIGINS
+
 app = FastAPI(title="Drone Route Planner API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=sorted(ALLOWED_ORIGINS),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(route_router)

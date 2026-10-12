@@ -5,7 +5,7 @@ import type {
 
 import { checkSessionResponse } from "./sessionEvents";
 
-const API_BASE_URL = "http://localhost:8000";
+import { API_BASE_URL } from "./apiConfig";
 
 export async function fetchObstacles(
   bounds: MapBounds,

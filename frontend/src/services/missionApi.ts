@@ -1,108 +1,108 @@
-import type {
-  MissionCreate,
-  MissionDetail,
-  MissionSummary,
-} from "../types/mission";
+  import type {
+    MissionCreate,
+    MissionDetail,
+    MissionSummary,
+  } from "../types/mission";
 
-import { checkSessionResponse } from "./sessionEvents";
+  import { checkSessionResponse } from "./sessionEvents";
 
-const API_BASE_URL = "http://localhost:8000";
+  import { API_BASE_URL } from "./apiConfig";
 
-async function checkResponse(
-  response: Response,
-  fallbackMessage: string,
-): Promise<void> {
-  checkSessionResponse(response);
+  async function checkResponse(
+    response: Response,
+    fallbackMessage: string,
+  ): Promise<void> {
+    checkSessionResponse(response);
 
-  if (response.ok) {
-    return;
-  }
-
-  let message = fallbackMessage;
-
-  try {
-    const data: unknown = await response.json();
-
-    if (
-      typeof data === "object" &&
-      data !== null &&
-      "detail" in data &&
-      typeof data.detail === "string"
-    ) {
-      message = data.detail;
+    if (response.ok) {
+      return;
     }
-  } catch {
-    // Keep the fallback message.
+
+    let message = fallbackMessage;
+
+    try {
+      const data: unknown = await response.json();
+
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "detail" in data &&
+        typeof data.detail === "string"
+      ) {
+        message = data.detail;
+      }
+    } catch {
+      // Keep the fallback message.
+    }
+
+    throw new Error(message);
   }
 
-  throw new Error(message);
-}
-
-export async function saveMission(
-  payload: MissionCreate,
-): Promise<MissionDetail> {
-  const response = await fetch(`${API_BASE_URL}/missions`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  await checkResponse(response, "Could not save the mission.");
-
-  return response.json();
-}
-
-export async function listMissions(
-  limit = 20,
-  offset = 0,
-): Promise<MissionSummary[]> {
-  const parameters = new URLSearchParams({
-    limit: String(limit),
-    offset: String(offset),
-  });
-
-  const response = await fetch(
-    `${API_BASE_URL}/missions?${parameters}`,
-    {
+  export async function saveMission(
+    payload: MissionCreate,
+  ): Promise<MissionDetail> {
+    const response = await fetch(`${API_BASE_URL}/missions`, {
+      method: "POST",
       credentials: "include",
-      cache: "no-store",
-    },
-  );
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
-  await checkResponse(response, "Could not load saved missions.");
+    await checkResponse(response, "Could not save the mission.");
 
-  return response.json();
-}
+    return response.json();
+  }
 
-export async function getMission(
-  missionId: string,
-): Promise<MissionDetail> {
-  const response = await fetch(
-    `${API_BASE_URL}/missions/${encodeURIComponent(missionId)}`,
-    {
-      credentials: "include",
-      cache: "no-store",
-    },
-  );
+  export async function listMissions(
+    limit = 20,
+    offset = 0,
+  ): Promise<MissionSummary[]> {
+    const parameters = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
 
-  await checkResponse(response, "Could not load the mission.");
+    const response = await fetch(
+      `${API_BASE_URL}/missions?${parameters}`,
+      {
+        credentials: "include",
+        cache: "no-store",
+      },
+    );
 
-  return response.json();
-}
+    await checkResponse(response, "Could not load saved missions.");
 
-export async function deleteMission(
-  missionId: string,
-): Promise<void> {
-  const response = await fetch(
-    `${API_BASE_URL}/missions/${encodeURIComponent(missionId)}`,
-    {
-      method: "DELETE",
-      credentials: "include",
-    },
-  );
+    return response.json();
+  }
 
-  await checkResponse(response, "Could not delete the mission.");
-}
+  export async function getMission(
+    missionId: string,
+  ): Promise<MissionDetail> {
+    const response = await fetch(
+      `${API_BASE_URL}/missions/${encodeURIComponent(missionId)}`,
+      {
+        credentials: "include",
+        cache: "no-store",
+      },
+    );
+
+    await checkResponse(response, "Could not load the mission.");
+
+    return response.json();
+  }
+
+  export async function deleteMission(
+    missionId: string,
+  ): Promise<void> {
+    const response = await fetch(
+      `${API_BASE_URL}/missions/${encodeURIComponent(missionId)}`,
+      {
+        method: "DELETE",
+        credentials: "include",
+      },
+    );
+
+    await checkResponse(response, "Could not delete the mission.");
+  }
