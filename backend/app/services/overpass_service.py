@@ -1,16 +1,14 @@
 import hashlib
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-import os
-
 
 logger = logging.getLogger(__name__)
 
-# Configure the provider without changing query or parsing logic.
 OVERPASS_URL = os.getenv(
     "OVERPASS_URL",
     "https://overpass-api.de/api/interpreter",
@@ -18,6 +16,14 @@ OVERPASS_URL = os.getenv(
 
 UNKNOWN_HEIGHT_MIN = 6.0
 UNKNOWN_HEIGHT_MAX = 30.0
+
+# Network waiting time is separate from Overpass query execution time.
+OVERPASS_TIMEOUT = httpx.Timeout(
+    connect=10.0,
+    read=45.0,
+    write=10.0,
+    pool=5.0,
+)
 
 
 def _stable_random_height(element_id: Any) -> float:
@@ -40,7 +46,7 @@ def _build_overpass_query(
     max_lon: float,
 ) -> str:
     return (
-        "[out:json][timeout:25];"
+        "[out:json][timeout:15];"
         "("
         f'way["building"]({min_lat},{min_lon},{max_lat},{max_lon});'
         f'relation["building"]({min_lat},{min_lon},{max_lat},{max_lon});'
@@ -130,13 +136,11 @@ async def fetch_building_obstacles(
     max_lon: float,
 ) -> List[Dict[str, Any]]:
     query = _build_overpass_query(min_lat, min_lon, max_lat, max_lon)
-
-    # Monotonic time measures duration without clock-change effects.
     started_at = time.monotonic()
     bounding_box = (min_lat, min_lon, max_lat, max_lon)
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
             response = await client.post(
                 OVERPASS_URL,
                 data={"data": query},
@@ -150,9 +154,10 @@ async def fetch_building_obstacles(
             data = response.json()
 
     except httpx.TimeoutException as exc:
-        # Distinguish connect/read/write timeouts in backend logs.
         logger.warning(
-            "Overpass client timeout: kind=%s elapsed=%.1fs bbox=%s",
+            "Overpass client timeout: endpoint=%s kind=%s "
+            "elapsed=%.1fs bbox=%s",
+            OVERPASS_URL,
             type(exc).__name__,
             time.monotonic() - started_at,
             bounding_box,
@@ -162,9 +167,10 @@ async def fetch_building_obstacles(
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code
 
-        # An upstream 504 differs from an HTTPX client timeout.
         logger.warning(
-            "Overpass HTTP failure: status=%s elapsed=%.1fs bbox=%s",
+            "Overpass HTTP failure: endpoint=%s status=%s "
+            "elapsed=%.1fs bbox=%s",
+            OVERPASS_URL,
             status_code,
             time.monotonic() - started_at,
             bounding_box,
@@ -182,17 +188,14 @@ async def fetch_building_obstacles(
         raise RuntimeError(f"http_{status_code}") from exc
 
     except httpx.RequestError as exc:
-        # Show nested connection errors, without logging credentials.
-        causes = []
-        current = exc
+        causes: List[str] = []
+        current: Optional[BaseException] = exc
 
         for _ in range(6):
             if current is None:
                 break
 
-            causes.append(
-                f"{type(current).__name__}: {current}"
-            )
+            causes.append(f"{type(current).__name__}: {current}")
             current = current.__cause__ or current.__context__
 
         logger.warning(
@@ -206,7 +209,9 @@ async def fetch_building_obstacles(
 
     except ValueError as exc:
         logger.warning(
-            "Overpass returned invalid JSON: elapsed=%.1fs bbox=%s",
+            "Overpass returned invalid JSON: endpoint=%s "
+            "elapsed=%.1fs bbox=%s",
+            OVERPASS_URL,
             time.monotonic() - started_at,
             bounding_box,
         )
