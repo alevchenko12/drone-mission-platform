@@ -182,13 +182,25 @@ async def fetch_building_obstacles(
         raise RuntimeError(f"http_{status_code}") from exc
 
     except httpx.RequestError as exc:
+        # Show nested connection errors, without logging credentials.
+        causes = []
+        current = exc
+
+        for _ in range(6):
+            if current is None:
+                break
+
+            causes.append(
+                f"{type(current).__name__}: {current}"
+            )
+            current = current.__cause__ or current.__context__
+
         logger.warning(
-            "Overpass connection failure: kind=%s reason=%s "
-            "elapsed=%.1fs bbox=%s",
-            type(exc).__name__,
-            str(exc),
+            "Overpass connection failure: endpoint=%s "
+            "elapsed=%.1fs causes=%s",
+            OVERPASS_URL,
             time.monotonic() - started_at,
-            bounding_box,
+            " -> ".join(causes),
         )
         raise RuntimeError("request_failed") from exc
 
