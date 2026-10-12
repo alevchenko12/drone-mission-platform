@@ -5,10 +5,16 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+import os
+
 
 logger = logging.getLogger(__name__)
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Configure the provider without changing query or parsing logic.
+OVERPASS_URL = os.getenv(
+    "OVERPASS_URL",
+    "https://overpass-api.de/api/interpreter",
+)
 
 UNKNOWN_HEIGHT_MIN = 6.0
 UNKNOWN_HEIGHT_MAX = 30.0
