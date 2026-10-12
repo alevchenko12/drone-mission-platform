@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.schemas.obstacle import ObstacleListResponse
 from app.services.overpass_service import fetch_building_obstacles
 from app.services.obstacle_cache import (
@@ -10,10 +10,16 @@ from app.services.obstacle_cache import (
     is_rate_limited,
     get_rate_limit_remaining_seconds,
 )
+from app.auth_dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/obstacles", tags=["obstacles"])
+# All logged-in roles may load public geographic obstacle data.
+router = APIRouter(
+    prefix="/obstacles",
+    tags=["obstacles"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("", response_model=ObstacleListResponse)

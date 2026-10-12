@@ -102,3 +102,15 @@ def require_admin(user: CurrentUser) -> User:
 
 MissionWriter = Annotated[User, Depends(require_mission_writer)]
 OrganizationAdmin = Annotated[User, Depends(require_admin)]
+
+
+def require_route_planner(user: CurrentUser) -> User:
+    # Authentication runs first through CurrentUser.
+    # Only operators and admins may generate new routes.
+    if user.role not in {"admin", "operator"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to generate routes.",
+        )
+
+    return user

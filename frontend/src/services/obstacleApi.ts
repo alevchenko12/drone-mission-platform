@@ -15,7 +15,9 @@ export async function fetchObstacles(
     max_lon: bounds.maxLon.toString(),
   });
 
-  const response = await fetch(`${API_BASE_URL}/obstacles?${params}`);
+  const response = await fetch(`${API_BASE_URL}/obstacles?${params}`, {
+  credentials: "include",
+});
 
   if (!response.ok) {
     let message = "Failed to load obstacles.";

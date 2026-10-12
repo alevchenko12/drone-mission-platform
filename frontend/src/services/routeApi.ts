@@ -52,11 +52,12 @@ export async function generateRoute(
 
   const response = await fetch(`${API_BASE_URL}/route/generate`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
-  });
+});
 
   if (!response.ok) {
     let message = "Failed to generate route.";
@@ -89,10 +90,14 @@ export async function generateRoute(
 export async function generateMultiRoutes(
   payload: MultiRouteGenerateRequest,
 ): Promise<MultiRouteGenerateResponse> {
-  const response = await axios.post<MultiRouteGenerateResponse>(
+   const response = await axios.post<MultiRouteGenerateResponse>(
     `${API_BASE_URL}/route/generate-multi`,
-    payload,
-  );
+  payload,
+  {
+    // Axios equivalent of fetch's credentials: "include".
+    withCredentials: true,
+  },
+);
 
   return response.data;
 }
