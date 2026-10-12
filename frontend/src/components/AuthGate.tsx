@@ -6,6 +6,8 @@ import type { FormEvent, ReactNode } from 'react'
 import { getCurrentUser, login, logout } from '../services/authApi'
 import type { CurrentUser } from '../types/auth'
 
+import { onSessionExpired } from '../services/sessionEvents'
+
 interface AuthGateProps {
   children: (user: CurrentUser) => ReactNode
 }
@@ -18,6 +20,16 @@ function AuthGate({ children }: AuthGateProps) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
+  // Listen for expired-session notifications from API services.
+  useEffect(() => {
+    return onSessionExpired(() => {
+      setUser(null)
+      setPassword('')
+      setError('Your session has expired. Please log in again.')
+    })
+  }, [])
+
+  // Check the existing session when the component mounts.
   useEffect(() => {
     let cancelled = false
 

@@ -3,6 +3,8 @@ import type {
   ObstacleListResponse,
 } from "../types/obstacle";
 
+import { checkSessionResponse } from "./sessionEvents";
+
 const API_BASE_URL = "http://localhost:8000";
 
 export async function fetchObstacles(
@@ -16,8 +18,11 @@ export async function fetchObstacles(
   });
 
   const response = await fetch(`${API_BASE_URL}/obstacles?${params}`, {
-  credentials: "include",
-});
+    credentials: "include",
+  });
+
+  // Check authentication after receiving the response.
+  checkSessionResponse(response);
 
   if (!response.ok) {
     let message = "Failed to load obstacles.";

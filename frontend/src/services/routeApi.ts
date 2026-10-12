@@ -1,16 +1,19 @@
+import axios from "axios";
+
 import type {
   MapPoint,
   RouteObstacleInput,
   RouteObstacle,
   RouteGenerateRequest,
   RouteGenerateResponse,
-} from "../types/route";
-
-import axios from "axios";
-import type {
   MultiRouteGenerateRequest,
   MultiRouteGenerateResponse,
-} from "../types/route";  
+} from "../types/route";
+
+import {
+  checkSessionResponse,
+  notifySessionExpired,
+} from "./sessionEvents";
 
 const API_BASE_URL = "http://localhost:8000";
 
@@ -57,7 +60,10 @@ export async function generateRoute(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
-});
+  });
+
+  // Return to login if the backend rejects the session.
+  checkSessionResponse(response);
 
   if (!response.ok) {
     let message = "Failed to generate route.";
@@ -90,14 +96,24 @@ export async function generateRoute(
 export async function generateMultiRoutes(
   payload: MultiRouteGenerateRequest,
 ): Promise<MultiRouteGenerateResponse> {
-   const response = await axios.post<MultiRouteGenerateResponse>(
-    `${API_BASE_URL}/route/generate-multi`,
-  payload,
-  {
-    // Axios equivalent of fetch's credentials: "include".
-    withCredentials: true,
-  },
-);
+  try {
+    const response = await axios.post<MultiRouteGenerateResponse>(
+      `${API_BASE_URL}/route/generate-multi`,
+      payload,
+      {
+        withCredentials: true,
+      },
+    );
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    // Axios throws for error responses, so check for 401 here.
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      notifySessionExpired();
+      throw new Error("Your session has expired. Please log in again.");
+    }
+
+    // Preserve other errors, including permission failures (403).
+    throw error;
+  }
 }

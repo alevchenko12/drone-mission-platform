@@ -4,12 +4,16 @@ import type {
   MissionSummary,
 } from "../types/mission";
 
+import { checkSessionResponse } from "./sessionEvents";
+
 const API_BASE_URL = "http://localhost:8000";
 
 async function checkResponse(
   response: Response,
   fallbackMessage: string,
 ): Promise<void> {
+  checkSessionResponse(response);
+
   if (response.ok) {
     return;
   }
